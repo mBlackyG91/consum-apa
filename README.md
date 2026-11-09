@@ -215,7 +215,7 @@ Secțiunea **Tipărire** folosește luna selectată în secțiunea **Lună**.
 ## 11. Actualizarea aplicației
 
 Încarcă fișierele modificate în GitHub (Add file → Upload files, peste cele vechi). Aplicația instalată își actualizează fișierele în fundal: versiunea nouă apare **la a doua deschidere**.
-Dacă adaugi fișiere noi în aplicație, adaugă-le și în lista `ASSETS` din `sw.js` și schimbă `consum-apa-v4` în `consum-apa-v5`.
+Dacă adaugi fișiere noi în aplicație, adaugă-le și în lista `ASSETS` din `sw.js` și schimbă `consum-apa-v5` în `consum-apa-v6`.
 
 ---
 

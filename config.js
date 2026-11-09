@@ -6,7 +6,7 @@
 //  Client ID-ul NU este secret: este normal să stea într-un depozit public.
 // =====================================================================
 window.APP_CONFIG = {
-  GOOGLE_CLIENT_ID: 'PUNE_AICI_CLIENT_ID.apps.googleusercontent.com',
+  GOOGLE_CLIENT_ID: '400632947377-fce33mvbb5co4jditm9nn6ee04v5ec0g.apps.googleusercontent.com',
 
   // Numele fișierului de date din Google Drive.
   DRIVE_FILE_NAME: 'evidenta-apa.json',
