@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.4.0';
+  const APP_VERSION = '1.5.0';
   const LS_DATA = 'evidenta-apa:data';
   const LS_UI = 'evidenta-apa:ui';
 
@@ -129,6 +129,7 @@
 
   // ======================= LUNI ȘI CALCULE =======================
   function defaultMonth() {
+    const due = dueMonth(); if (due) return due; // la final/început de lună: luna „de predat”
     const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   }
@@ -265,6 +266,7 @@
     data.updatedAt = new Date().toISOString();
     saveLocal();
     window.Sync.markDirty();
+    renderDueBanner();
     if (ui.tab === 'tiparire') { clearTimeout(previewTimer); previewTimer = setTimeout(renderPrint, 250); }
   }
   function sourceLabel(src) {
@@ -334,17 +336,25 @@
     data.apartments.forEach((a) => updateCard(a.id, true));
     renderMonthStatus();
   }
-  /** „N-am uitat pe nimeni?”: apartamentele cărora le lipsesc indexuri noi în luna aleasă. */
-  function renderMonthStatus() {
-    const box = $('#month-status'); if (!box) return;
-    const mk = ui.month;
+  /** Apartamentele cărora le lipsesc indexuri noi în luna `mk` (doar cele cu contoare active). */
+  function missingFor(mk) {
     const missing = [];
     for (const apt of data.apartments) {
       const ms = activeMeters(apt); if (!ms.length) continue;
       const lack = ms.filter((m) => newIdx(mk, apt.id, m.key) == null);
       if (lack.length) missing.push({ apt, all: lack.length === ms.length, lack });
     }
+    return missing;
+  }
+  const missingHTML = (missing) => missing.map((x) =>
+    '<button type="button" class="linklike" data-goto="' + x.apt.id + '">' + esc(aptTitle(x.apt)) +
+    (x.all ? '' : ' (' + esc(x.lack.map((m) => m.label).join(', ')) + ')') + '</button>').join(', ');
+  /** „N-am uitat pe nimeni?”: apartamentele cărora le lipsesc indexuri noi în luna aleasă. */
+  function renderMonthStatus() {
+    const box = $('#month-status'); if (!box) return;
+    const mk = ui.month;
     if (!data.apartments.some((a) => activeMeters(a).length)) { box.hidden = true; return; }
+    const missing = missingFor(mk);
     box.hidden = false;
     if (!missing.length) {
       box.className = 'month-status ok';
@@ -352,9 +362,30 @@
       return;
     }
     box.className = 'month-status warn';
-    box.innerHTML = 'Lipsesc indexuri noi pentru ' + esc(monthLabel(mk)) + ': ' + missing.map((x) =>
-      '<button type="button" class="linklike" data-goto="' + x.apt.id + '">' + esc(aptTitle(x.apt)) +
-      (x.all ? '' : ' (' + esc(x.lack.map((m) => m.label).join(', ')) + ')') + '</button>').join(', ') + '.';
+    box.innerHTML = 'Lipsesc indexuri noi pentru ' + esc(monthLabel(mk)) + ': ' + missingHTML(missing) + '.';
+  }
+
+  // ---------- avertisment de termen ----------
+  // Luna „de predat”: în ultimele zile ale lunii (25+) este luna curentă, în primele zile
+  // (până pe 10) este luna precedentă. Între 11 și 24 nu se arată nimic.
+  function dueMonth(now) {
+    const d = now || new Date();
+    const cur = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    if (d.getDate() >= 25) return cur;
+    if (d.getDate() <= 10) return shiftMonth(cur, -1);
+    return null;
+  }
+  let dueDismissed = false; // „Mai târziu” ține doar până la următoarea deschidere
+  function renderDueBanner(now) {
+    const box = $('#due-notice'); if (!box) return;
+    const mk = dueMonth(now);
+    const missing = mk && data.apartments.some((a) => activeMeters(a).length) ? missingFor(mk) : [];
+    // În Lună, pe luna cu pricina, bara „Lipsesc indexuri” spune deja același lucru.
+    const redundant = ui.tab === 'luna' && ui.month === mk;
+    box.hidden = !missing.length || dueDismissed || redundant;
+    if (box.hidden) return;
+    box.dataset.month = mk;
+    $('#due-text').innerHTML = '<strong>Nu ai introdus încă indexurile pentru ' + esc(monthLabel(mk)) + '.</strong> Lipsesc: ' + missingHTML(missing) + '.';
   }
   function gotoApt(id) {
     const card = $('.apt-card[data-apt="' + id + '"]'); if (!card) return;
@@ -978,8 +1009,14 @@
     if (ui.tab === 'istoric') renderHistory();
     if (ui.tab === 'apartamente') renderApts();
     if (ui.tab === 'date') renderDate();
+    renderDueBanner();
   }
   function setTab(t) { ui.tab = t; saveUi(); renderTab(); window.scrollTo(0, 0); }
+  function goDue() {
+    const box = $('#due-notice'); const mk = box.dataset.month; if (!mk) return;
+    ui.month = mk; setTab('luna');
+    const first = missingFor(mk)[0]; if (first) gotoApt(first.apt.id);
+  }
 
   function onStatus(st) {
     const b = $('#sync-badge'); b.textContent = st.text; b.dataset.code = st.code;
@@ -1050,6 +1087,9 @@
     $('#backup-list').addEventListener('click', (e) => { const b = e.target.closest('[data-restore]'); if (b) restoreBackup(b.dataset.restore, b.dataset.day); });
     $('#toast-undo').addEventListener('click', () => { const u = toastUndo; hideToast(); if (u) u(); });
     $('#month-status').addEventListener('click', (e) => { const b = e.target.closest('[data-goto]'); if (b) gotoApt(b.dataset.goto); });
+    $('#due-go').addEventListener('click', goDue);
+    $('#due-later').addEventListener('click', () => { dueDismissed = true; renderDueBanner(); });
+    $('#due-text').addEventListener('click', (e) => { const b = e.target.closest('[data-goto]'); if (b) { ui.month = $('#due-notice').dataset.month; setTab('luna'); gotoApt(b.dataset.goto); } });
     $('#btn-export').addEventListener('click', exportJson);
     $('#import-file').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importJson(f); });
 
@@ -1081,5 +1121,5 @@
   }
 
   // pentru teste
-  window.__app = { get data() { return data; }, ui, normalize, parseNum, fmtNum, buildForm, makePdf, renderTab, setTab, setMonth, validate, isPristine };
+  window.__app = { dueMonth, renderDueBanner, get data() { return data; }, ui, normalize, parseNum, fmtNum, buildForm, makePdf, renderTab, setTab, setMonth, validate, isPristine };
 })();

@@ -136,6 +136,8 @@ table.hist button { min-height: 36px; }
 /* avize neblocante (îmbinare, reconectare) */
 .notice { margin: .75rem 16px 0; padding: .6rem .8rem; border-radius: 10px; background: var(--card); border: 1px solid var(--line); font-size: .92rem; }
 .notice p { margin: 0 0 .5rem; }
+.notice.due { background: var(--err-bg); color: var(--err); border-color: transparent; }
+.notice.due .actions { margin: 0; }
 .notice.warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
 .notice details { margin: 0 0 .5rem; }
 .notice ul { margin: .3rem 0 0; padding-left: 1.1rem; }

@@ -172,13 +172,14 @@ Apoi, pe **fiecare** dispozitiv: secțiunea **Date** → **Conectează Google Dr
 
 **Apartamente** – pornește cu 2 apartamente goale. Completează: nr. apartament, numele proprietarului, numărul implicit de persoane, contoarele active (Bucătărie, Baie, Baie de serviciu) și „Include la tipărire”. Poți adăuga sau șterge apartamente.
 
-**Lună** – implicit luna anterioară (cea pentru care predai indexurile).
+**Lună** – implicit luna „de predat”: din 25 ale lunii până pe 10 ale următoarei, luna pentru care se dau indexurile (curentă la final de lună, precedentă la început); între 11 și 24, luna anterioară.
 - *Perioada consumului* se completează automat („octombrie 2026”); o poți modifica, iar butonul **Automat** revine la textul implicit.
 - Introduci doar **indexul nou**, ca număr întreg de m³ (ex. `123`), fără virgulă și fără zecimale. Pe telefon apare tastatura cu cifre.
 - *Indexul vechi* se preia din indexul nou al lunii anterioare (scrie sub câmp de unde a fost preluat). La prima lună îl introduci manual; orice index vechi poate fi suprascris (apare „introdus manual · revino la automat”).
 - *Numărul de persoane* se preia din luna anterioară (sau numărul implicit) și se poate schimba pentru luna respectivă.
 - Consumul și totalul apei reci se calculează automat.
 - Mesaje, fără să blocheze introducerea: **roșu** = index nou mai mic decât cel vechi; **galben** = consum de peste 2 ori media lunilor anterioare, contor lipsă într-o lună începută, sau **lună lipsă** (ex. n-ai introdus septembrie: indexul vechi se ia din august, iar consumul acoperă 2 luni, și aplicația te avertizează).
+- **Avertisment de termen:** în ultimele zile ale lunii (de pe 25) și în primele 10 zile ale următoarei, dacă lipsesc indexuri pentru luna de predat, apare sus, pe orice secțiune, un banner roșu „Nu ai introdus încă indexurile pentru …” cu butonul **Introdu acum** (te duce direct la primul câmp lipsă). „Mai târziu” îl ascunde doar până la următoarea deschidere a aplicației. Dispare singur când toate indexurile sunt introduse.
 - Deasupra apartamentelor, o bară arată **cine nu are încă indexurile noi** (apeși numele apartamentului ca să sari direct la el) sau „✔ Toate apartamentele au indexurile noi introduse”.
 
 **Istoric** – grafic și tabel pe apartament (index nou, consum, total, persoane). Pe grafic, un semn negru arată consumul **aceleiași luni din anul trecut**, iar tabelul are coloana „față de anul trecut” (ex. `+16 m³ (+114%)`); apare doar când ambele luni sunt complete. „Deschide” te duce la luna respectivă pentru corecturi. Dacă corectezi o lună veche, luna următoare își actualizează automat indexul vechi.

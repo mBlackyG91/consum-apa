@@ -2,7 +2,7 @@
  * Fișierele aplicației se servesc din cache și se actualizează în fundal
  * (la următoarea deschidere apare versiunea nouă). Cererile către Google
  * (autentificare, Drive) nu trec niciodată prin cache. */
-const CACHE = 'consum-apa-v9';
+const CACHE = 'consum-apa-v10';
 const ASSETS = [
   './', './index.html', './styles.css', './config.js', './merge.js', './backup.js', './drive.js', './pdf.js', './app.js', './manifest.json',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png',
