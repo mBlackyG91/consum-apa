@@ -41,6 +41,7 @@ Funcționează și fără internet. Se poate „instala” pe telefon ca aplica�
 | `drive.js` | Autentificare Google și sincronizare cu Drive |
 | `pdf.js` | Generator PDF (fără biblioteci externe) |
 | `config.js` | **Singurul fișier pe care îl modifici**: Client ID-ul Google |
+| `privacy.html` | Politica de confidențialitate (cerută de Google pentru „In production”) |
 | `sw.js` | Service worker: funcționare offline |
 | `manifest.json`, `icons/` | Instalare ca aplicație pe telefon |
 | `tests/` | Pagina de test a sincronizării și date de test inventate |
@@ -113,6 +114,7 @@ Este ecranul pe care Google ți-l arată când aplicația cere acces („Aplica�
   - Autorizarea nu mai expiră după 7 zile; acordul îl dai o singură dată pe cont.
   - Deoarece aplicația folosește doar scope-ul `drive.file` (considerat de Google *non-sensitive*), în mod normal **nu** este necesară procedura de verificare. Este posibil să vezi în continuare un avertisment la prima conectare.
   - Recomandare: începe în **Testing**, verifică faptul că totul merge, apoi apasă **Publish app** ca să scapi de reconfirmarea săptămânală.
+  - Pentru **Publish app**, Google cere în **Branding**: *Application home page* = adresa aplicației (ex. `https://NUMELE-TAU.github.io/consum-apa/`), *Application privacy policy link* = `https://NUMELE-TAU.github.io/consum-apa/privacy.html` (pagina e inclusă în proiect) și, la *Authorized domains*, `NUMELE-TAU.github.io`.
 
 Indiferent de mod, **tokenul de acces durează ~1 oră** (regulă Google pentru aplicațiile fără server). După expirare, insigna din colțul aplicației arată „Reconectează Google Drive”: o atingere și fereastra Google se închide singură (dacă acordul este încă valabil). Modificările făcute între timp rămân salvate pe dispozitiv și se trimit imediat după reconectare.
 
@@ -215,7 +217,7 @@ Secțiunea **Tipărire** folosește luna selectată în secțiunea **Lună**.
 ## 11. Actualizarea aplicației
 
 Încarcă fișierele modificate în GitHub (Add file → Upload files, peste cele vechi). Aplicația instalată își actualizează fișierele în fundal: versiunea nouă apare **la a doua deschidere**.
-Dacă adaugi fișiere noi în aplicație, adaugă-le și în lista `ASSETS` din `sw.js` și schimbă `consum-apa-v5` în `consum-apa-v6`.
+Dacă adaugi fișiere noi în aplicație, adaugă-le și în lista `ASSETS` din `sw.js` și schimbă `consum-apa-v6` în `consum-apa-v7`.
 
 ---
 

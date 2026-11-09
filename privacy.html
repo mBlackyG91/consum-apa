@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Politica de confidențialitate – Consum apă</title>
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <style>
+    body { margin: 0; background: #f4f5f7; color: #1b1f24; font: 17px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-size: 1.5rem; line-height: 1.25; }
+    h2 { font-size: 1.1rem; margin-top: 1.8rem; }
+    a { color: #1f4e79; }
+    .muted { color: #5b6470; font-size: .9rem; }
+    :focus-visible { outline: 3px solid #ffb000; outline-offset: 2px; }
+  </style>
+</head>
+<body>
+<main>
+  <p><a href="./">← Înapoi la aplicație</a></p>
+  <h1>Politica de confidențialitate – „Consum apă”</h1>
+  <p class="muted">Ultima actualizare: 9 noiembrie 2026</p>
+
+  <p>„Consum apă” este o aplicație web personală, fără server propriu, care ține evidența lunară a indexurilor de apă și generează formulare de înștiințare pentru tipărire.</p>
+
+  <h2>Ce date folosește aplicația</h2>
+  <p>Datele pe care le introduci tu: numerele apartamentelor, numele proprietarului, numărul de persoane, indexurile contoarelor și perioada consumului.</p>
+
+  <h2>Unde sunt stocate</h2>
+  <ul>
+    <li><strong>Pe dispozitivul tău</strong>, în memoria browserului (localStorage), ca aplicația să funcționeze și fără internet.</li>
+    <li><strong>În Google Drive-ul tău</strong>, într-un singur fișier numit <code>evidenta-apa.json</code>, doar dacă alegi „Conectează Google Drive”.</li>
+  </ul>
+  <p>Autorul aplicației <strong>nu primește, nu vede și nu stochează</strong> niciun fel de date. Nu există server propriu, cont de utilizator, statistici de utilizare, reclame sau cookie-uri de urmărire.</p>
+
+  <h2>Accesul la Google Drive</h2>
+  <p>Aplicația cere doar permisiunea <code>https://www.googleapis.com/auth/drive.file</code>. Cu această permisiune aplicația poate citi și modifica <strong>numai fișierele create de ea</strong> (fișierul <code>evidenta-apa.json</code>). Nu are acces la celelalte fișiere din Drive-ul tău.</p>
+  <p>Autentificarea se face prin Google Identity Services, direct între browserul tău și Google. Tokenul de acces (valabil aproximativ o oră) se păstrează doar în browserul tău și este folosit doar pentru a citi și scrie fișierul de mai sus.</p>
+  <p>Utilizarea și transferul informațiilor primite de la API-urile Google respectă <a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener">Google API Services User Data Policy</a>, inclusiv cerințele de utilizare limitată (Limited Use).</p>
+
+  <h2>Partajarea datelor</h2>
+  <p>Datele nu sunt vândute, partajate sau transmise către terți. Singurul serviciu extern folosit este Google (autentificare și Google Drive), sub contul tău.</p>
+
+  <h2>Cum ștergi datele și revoci accesul</h2>
+  <ul>
+    <li>Din aplicație, secțiunea „Date” → „Deconectează” oprește sincronizarea pe acel dispozitiv.</li>
+    <li>Accesul aplicației la contul Google îl poți revoca oricând din <a href="https://myaccount.google.com/connections" rel="noopener">Contul Google → Aplicații și servicii conectate</a>.</li>
+    <li>Fișierul <code>evidenta-apa.json</code> îl poți șterge direct din Google Drive.</li>
+    <li>Datele locale se șterg prin ștergerea datelor site-ului din setările browserului sau prin dezinstalarea aplicației.</li>
+  </ul>
+
+  <h2>Contact</h2>
+  <p>Întrebări sau probleme: <a href="https://github.com/mBlackyG91/consum-apa/issues" rel="noopener">github.com/mBlackyG91/consum-apa/issues</a>.</p>
+</main>
+</body>
+</html>
