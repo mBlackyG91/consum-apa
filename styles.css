@@ -209,4 +209,22 @@ table.hist button { min-height: 36px; }
 .chart-tip b { margin-left: auto; padding-left: .8rem; font-variant-numeric: tabular-nums; }
 .chart-tip .tot { border-top: 1px solid var(--line); margin-top: .25rem; padding-top: .25rem; font-weight: 600; }
 .chart-note { margin: .2rem 0 0; }
+.chart-plot .prevmark { stroke: var(--fg); stroke-width: 2.5; stroke-linecap: round; }
+.chart-legend .lg-prev { width: 14px; height: 0; border-top: 2.5px solid var(--fg); border-radius: 2px; vertical-align: 3px; background: none; }
+.hist .yoy { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
 @media print { .chart { display: none; } }
+
+/* stare lună, mesaj „Anulează”, copii de siguranță */
+.month-status { margin: 0 0 .75rem; padding: .55rem .75rem; border-radius: 10px; font-size: .92rem; }
+.month-status.ok { background: #d9f2df; color: var(--ok); }
+.month-status.warn { background: var(--warn-bg); color: var(--warn); }
+.linklike { border: 0; background: none; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; }
+.toast {
+  position: fixed; left: 16px; right: 16px; margin: 0 auto; width: max-content; bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 20; display: flex; align-items: center; gap: .9rem; max-width: min(560px, calc(100vw - 32px));
+  background: #1f2933; color: #fff; padding: .7rem .9rem; border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.25); font-size: .92rem;
+}
+.toast button { border: 0; background: none; color: #9ec5ff; font: inherit; font-weight: 600; cursor: pointer; padding: .4rem .5rem; min-height: 44px; }
+.backup-list { list-style: none; margin: .5rem 0 0; padding: 0; }
+.backup-list li { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .35rem 0; border-top: 1px solid var(--line); }
+@media print { .toast { display: none !important; } }

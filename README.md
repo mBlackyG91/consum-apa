@@ -40,6 +40,7 @@ Funcționează și fără internet. Se poate „instala” pe telefon ca aplica�
 | `app.js` | Logica: apartamente, luni, calcule, validări, istoric, tipărire, PDF |
 | `drive.js` | Autentificare Google și sincronizare cu Drive |
 | `merge.js` | Îmbinarea automată a modificărilor făcute pe dispozitive diferite |
+| `backup.js` | Regula de păstrare a copiilor de siguranță din Drive |
 | `pdf.js` | Generator PDF (fără biblioteci externe) |
 | `config.js` | **Singurul fișier pe care îl modifici**: Client ID-ul Google |
 | `privacy.html` | Politica de confidențialitate (cerută de Google pentru „In production”) |
@@ -177,9 +178,10 @@ Apoi, pe **fiecare** dispozitiv: secțiunea **Date** → **Conectează Google Dr
 - *Indexul vechi* se preia din indexul nou al lunii anterioare (scrie sub câmp de unde a fost preluat). La prima lună îl introduci manual; orice index vechi poate fi suprascris (apare „introdus manual · revino la automat”).
 - *Numărul de persoane* se preia din luna anterioară (sau numărul implicit) și se poate schimba pentru luna respectivă.
 - Consumul și totalul apei reci se calculează automat.
-- Mesaje, fără să blocheze introducerea: **roșu** = index nou mai mic decât cel vechi; **galben** = consum de peste 2 ori media lunilor anterioare, sau contor lipsă într-o lună începută.
+- Mesaje, fără să blocheze introducerea: **roșu** = index nou mai mic decât cel vechi; **galben** = consum de peste 2 ori media lunilor anterioare, contor lipsă într-o lună începută, sau **lună lipsă** (ex. n-ai introdus septembrie: indexul vechi se ia din august, iar consumul acoperă 2 luni, și aplicația te avertizează).
+- Deasupra apartamentelor, o bară arată **cine nu are încă indexurile noi** (apeși numele apartamentului ca să sari direct la el) sau „✔ Toate apartamentele au indexurile noi introduse”.
 
-**Istoric** – tabel pe apartament (index nou, consum, total, persoane). „Deschide” te duce la luna respectivă pentru corecturi. Dacă corectezi o lună veche, luna următoare își actualizează automat indexul vechi.
+**Istoric** – grafic și tabel pe apartament (index nou, consum, total, persoane). Pe grafic, un semn negru arată consumul **aceleiași luni din anul trecut**, iar tabelul are coloana „față de anul trecut” (ex. `+16 m³ (+114%)`); apare doar când ambele luni sunt complete. „Deschide” te duce la luna respectivă pentru corecturi. Dacă corectezi o lună veche, luna următoare își actualizează automat indexul vechi.
 
 **Date** – starea sincronizării, „Sincronizează acum”, „Deconectează”, **Exportă JSON** / **Importă JSON** (copie de siguranță; importul cere confirmare și înlocuiește toate datele).
 
@@ -213,6 +215,8 @@ Secțiunea **Tipărire** folosește luna selectată în secțiunea **Lună**.
 - La pornire, la reconectarea la internet și când revii în aplicație, ea verifică dacă fișierul din Drive s-a schimbat (după versiunea fișierului) și preia modificările de pe celelalte dispozitive.
 - **Nu există ferestre de conflict.** Dacă ai modificări aici și s-a modificat și Drive-ul, aplicația le îmbină automat, valoare cu valoare (index, număr de persoane, nume etc.), comparând cu ultima versiune sincronizată. Modificările pe câmpuri diferite se păstrează toate. Doar dacă **aceeași valoare** a fost schimbată diferit pe două dispozitive, rămâne cea mai recentă, iar sub taburi apare o notă („Vezi ce s-a înlocuit”) cu valoarea înlocuită, ca să o poți reintroduce dacă era cea corectă.
 - Conectarea Google expiră după aproximativ o oră (limită a Google pentru aplicațiile fără server). Până la reconectare (insigna roșie sau bannerul galben), aplicația **nu vede** modificările de pe alte dispozitive, deci reconectează-te înainte să introduci date noi.
+- **Copii de siguranță:** la prima salvare din fiecare zi, Drive face singur o copie a fișierului (`evidenta-apa-backup-AAAA-LL-ZZ.json`), **înainte** să fie suprascris cu modificările zilei. Se păstrează copiile din ultimele 14 zile și cea mai veche copie din fiecare lună a ultimului an; restul se pun la gunoi. Din secțiunea **Date → Copii de siguranță** poți vedea lista și **restaura** o copie (cu posibilitate de anulare imediată).
+- **Ștergere cu „Anulează”:** la ștergerea unui apartament nu mai apare fereastră de confirmare; apare un mesaj cu butonul „Anulează”, valabil câteva secunde.
 - Fișierul `evidenta-apa.json` din Drive este text JSON; nu îl edita manual decât dacă știi ce faci. Dacă îl ștergi din Drive, aplicația îl recreează din datele locale.
 
 ---
@@ -234,7 +238,7 @@ python -m http.server 8765
 
 Deschide <http://localhost:8765>. Pentru Drive, adaugă `http://localhost:8765` la *Authorized JavaScript origins* (pasul 5).
 
-Testul automat al sincronizării (cu un Drive **simulat**, fără cont Google): <http://localhost:8765/tests/sync-test.html> – trebuie să afișeze „TOATE TESTELE AU TRECUT”. Testul logicii de îmbinare (necesită Node.js): `node tests/merge-test.js`.
+Testul automat al sincronizării (cu un Drive **simulat**, fără cont Google): <http://localhost:8765/tests/sync-test.html> – trebuie să afișeze „TOATE TESTELE AU TRECUT”. Testele logicii pure (necesită Node.js): `node tests/merge-test.js` (îmbinare) și `node tests/backup-test.js` (păstrarea copiilor).
 
 ---
 

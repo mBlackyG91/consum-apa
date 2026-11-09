@@ -59,6 +59,7 @@
           <button type="button" class="btn small" id="period-reset" hidden>Automat</button>
         </div>
       </div>
+      <div id="month-status" class="month-status" role="status" aria-live="polite" hidden></div>
       <div id="month-apts"></div>
     </section>
 
@@ -107,6 +108,12 @@
           <button type="button" class="btn" id="btn-disconnect">Deconectează</button>
         </div>
       </div>
+      <div class="card" id="backup-card" hidden>
+        <h2>Copii de siguranță în Drive</h2>
+        <p class="muted" id="backup-info"></p>
+        <div class="actions"><button type="button" class="btn" id="btn-backups">Arată copiile</button></div>
+        <div id="backup-list"></div>
+      </div>
       <div class="card">
         <h2>Export / import manual</h2>
         <p class="muted">Copie de siguranță a tuturor datelor într-un fișier JSON.</p>
@@ -125,8 +132,14 @@
 <!-- Foile A4: previzualizare pe ecran, singurul conținut la tipărire. -->
 <div id="print-root" hidden></div>
 
+<div id="toast" class="toast" role="status" hidden>
+  <span id="toast-text"></span>
+  <button type="button" id="toast-undo">Anulează</button>
+</div>
+
 <script src="config.js"></script>
 <script src="merge.js"></script>
+<script src="backup.js"></script>
 <script src="drive.js"></script>
 <script src="pdf.js"></script>
 <script src="app.js"></script>

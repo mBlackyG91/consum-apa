@@ -24,6 +24,7 @@
   const LS_META = 'evidenta-apa:sync';
   const LS_TOKEN = 'evidenta-apa:token';
   const LS_BASE = 'evidenta-apa:base';
+  const BACKUP_PREFIX = 'evidenta-apa-backup-';
 
   const hooks = { getData: null, setData: null, onStatus: null, onMerge: null, isPristine: null, merge: null };
 
@@ -38,6 +39,7 @@
     rev: 0,             // contor local de modificări
     syncedRev: 0,       // ultimul "rev" ajuns în Drive
     lastSyncAt: null,
+    lastBackupDay: null, // ziua (AAAA-LL-ZZ) în care s-a făcut ultima copie de siguranță în Drive
   }, readLS(LS_META) || {});
   let token = readLS(LS_TOKEN); // { access_token, expires_at }
   let base = readLS(LS_BASE);   // datele la ultima sincronizare (strămoșul comun pentru îmbinare)
@@ -76,7 +78,7 @@
   function emit() { if (hooks.onStatus) hooks.onStatus(status(), info()); }
   function info() {
     return { connected: meta.connected, configured: isConfigured(), lastSyncAt: meta.lastSyncAt,
-      dirty: isDirty(), hasToken: hasToken(), error: lastError ? lastError.message : null };
+      dirty: isDirty(), hasToken: hasToken(), error: lastError ? lastError.message : null, lastBackupDay: meta.lastBackupDay };
   }
 
   // ---------- Google Identity Services ----------
@@ -186,6 +188,43 @@
     return r.json();
   }
 
+  // ---------- copii de siguranță ----------
+  const pad2 = (n) => String(n).padStart(2, '0');
+  function localDay() { const d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+  /** Toate copiile create de aplicație (drive.file vede doar fișierele ei). */
+  async function listBackups() {
+    const q = encodeURIComponent("mimeType = 'application/json' and trashed = false");
+    const r = await api('GET', API + '?q=' + q + '&spaces=drive&orderBy=name%20desc&pageSize=200&fields=files(id,name,modifiedTime)');
+    const j = await r.json();
+    return (j.files || []).filter((f) => window.Backup.NAME_RE.test(f.name));
+  }
+  async function trashFile(id) {
+    await api('PATCH', API + '/' + encodeURIComponent(id), JSON.stringify({ trashed: true }), 'application/json');
+  }
+  /** O copie pe zi: o copie făcută chiar de Drive, a fișierului ÎNAINTE să fie suprascris
+   *  (deci starea de la ultima sincronizare, înaintea modificărilor de azi). */
+  async function maybeBackup() {
+    const day = localDay();
+    if (meta.lastBackupDay === day || !meta.fileId) return;
+    try {
+      const files = await listBackups();
+      const name = BACKUP_PREFIX + day + '.json';
+      if (!files.some((f) => f.name === name)) {
+        const r = await api('POST', API + '/' + encodeURIComponent(meta.fileId) + '/copy?fields=id,name,modifiedTime',
+          JSON.stringify({ name }), 'application/json');
+        files.push(await r.json());
+      }
+      meta.lastBackupDay = day; saveMeta();
+      for (const n of window.Backup.toDelete(files.map((f) => f.name), day)) {
+        const f = files.find((x) => x.name === n);
+        if (f) await trashFile(f.id);
+      }
+    } catch (e) {
+      if (e.code === 'auth' || e.code === 'offline') throw e;
+      // O copie eșuată nu trebuie să blocheze salvarea datelor; se reîncearcă la următoarea sincronizare.
+    }
+  }
+
   // ---------- comparare conținut ----------
   function stable(v) {
     if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';
@@ -270,6 +309,7 @@
 
     // 3. Avem modificări locale: le scriem.
     if (isDirty()) {
+      await maybeBackup();
       const rev = meta.rev;
       const snap = hooks.getData();
       const updated = await updateFile(meta.fileId, snap);
@@ -328,6 +368,12 @@
       emit();
     },
     syncNow() { lastError = null; return run(); },
+    /** Lista copiilor de siguranță din Drive, cele mai noi primele. */
+    async listBackups() {
+      const files = await listBackups();
+      return files.map((f) => ({ id: f.id, name: f.name, day: f.name.slice(BACKUP_PREFIX.length, -5) })).sort((a, b) => (a.day < b.day ? 1 : -1));
+    },
+    fetchBackup(id) { return download(id); },
     _debug: () => ({ meta: Object.assign({}, meta), token, needAuth, busy, base }),
   };
   window.Sync = Sync;

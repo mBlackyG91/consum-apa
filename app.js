@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.3.0';
+  const APP_VERSION = '1.4.0';
   const LS_DATA = 'evidenta-apa:data';
   const LS_UI = 'evidenta-apa:ui';
 
@@ -206,24 +206,43 @@
     }
     return vals.length ? { avg: vals.reduce((a, b) => a + b, 0) / vals.length, n: vals.length } : null;
   }
+  function mIdx(mk) { const { y, m } = mkParts(mk); return y * 12 + m; }
   function validate(mk, apt) {
     const out = [];
     const ms = activeMeters(apt);
     const started = ms.some((m) => newIdx(mk, apt.id, m.key) != null);
     for (const m of ms) {
-      const o = effOld(mk, apt.id, m.key).value, n = newIdx(mk, apt.id, m.key);
+      const oe = effOld(mk, apt.id, m.key), o = oe.value, n = newIdx(mk, apt.id, m.key);
       if (o != null && n != null && n < o) {
         out.push({ level: 'error', meter: m.key, text: m.label + ': indexul nou (' + fmtNum(n) + ') este mai mic decât cel vechi (' + fmtNum(o) + ').' });
       } else if (o != null && n != null) {
-        const c = roundIdx(n - o), a = avgPrev(mk, apt.id, m.key);
-        if (a && a.avg > 0 && c > 2 * a.avg) {
-          out.push({ level: 'warn', meter: m.key, text: m.label + ': consum ' + fmtNum(c) + ' m³, peste dublul mediei lunilor anterioare (' + fmtNum(a.avg) + ' m³).' });
+        const c = roundIdx(n - o);
+        if (oe.src === 'auto' && oe.from !== shiftMonth(mk, -1)) {
+          // Luna precedentă lipsește: indexul vechi vine din altă lună, deci consumul acoperă mai multe luni.
+          const k = mIdx(mk) - mIdx(oe.from);
+          out.push({ level: 'warn', meter: m.key, text: m.label + ': lipsește ' + monthLabel(shiftMonth(mk, -1)) + '; indexul vechi e preluat din ' +
+            monthLabel(oe.from) + ', deci consumul de ' + fmtNum(c) + ' m³ acoperă ' + k + ' luni, nu una.' });
+        } else {
+          const a = avgPrev(mk, apt.id, m.key);
+          if (a && a.avg > 0 && c > 2 * a.avg) {
+            out.push({ level: 'warn', meter: m.key, text: m.label + ': consum ' + fmtNum(c) + ' m³, peste dublul mediei lunilor anterioare (' + fmtNum(a.avg) + ' m³).' });
+          }
         }
       }
       if (started && n == null) out.push({ level: 'warn', meter: m.key, text: 'Lipsește indexul nou pentru ' + m.label + '.' });
       if (started && n != null && o == null) out.push({ level: 'warn', meter: m.key, text: 'Lipsește indexul vechi pentru ' + m.label + ' (nu există lună anterioară; introdu-l manual).' });
     }
     return out;
+  }
+  /** Totalul lunii față de aceeași lună din anul trecut (doar dacă ambele sunt complete). */
+  function yoy(mk, apt) {
+    const t = totalFor(mk, apt), p = totalFor(shiftMonth(mk, -12), apt);
+    if (!t.complete || !p.complete) return null;
+    return { cur: t.value, prev: p.value, diff: t.value - p.value, pct: p.value > 0 ? ((t.value - p.value) / p.value) * 100 : null };
+  }
+  function fmtDiff(diff, pct) {
+    const sg = diff > 0 ? '+' : diff < 0 ? '−' : '';
+    return sg + Math.abs(diff) + ' m³' + (pct == null ? '' : ' (' + sg + Math.round(Math.abs(pct)) + '%)');
   }
   /** Elimină din lună intrările goale, ca istoricul să nu aibă rânduri fantomă. */
   function cleanupMonth(mk) {
@@ -313,6 +332,35 @@
         '</div>';
     }).join('');
     data.apartments.forEach((a) => updateCard(a.id, true));
+    renderMonthStatus();
+  }
+  /** „N-am uitat pe nimeni?”: apartamentele cărora le lipsesc indexuri noi în luna aleasă. */
+  function renderMonthStatus() {
+    const box = $('#month-status'); if (!box) return;
+    const mk = ui.month;
+    const missing = [];
+    for (const apt of data.apartments) {
+      const ms = activeMeters(apt); if (!ms.length) continue;
+      const lack = ms.filter((m) => newIdx(mk, apt.id, m.key) == null);
+      if (lack.length) missing.push({ apt, all: lack.length === ms.length, lack });
+    }
+    if (!data.apartments.some((a) => activeMeters(a).length)) { box.hidden = true; return; }
+    box.hidden = false;
+    if (!missing.length) {
+      box.className = 'month-status ok';
+      box.innerHTML = '✔ Toate apartamentele au indexurile noi introduse pentru ' + esc(monthLabel(mk)) + '.';
+      return;
+    }
+    box.className = 'month-status warn';
+    box.innerHTML = 'Lipsesc indexuri noi pentru ' + esc(monthLabel(mk)) + ': ' + missing.map((x) =>
+      '<button type="button" class="linklike" data-goto="' + x.apt.id + '">' + esc(aptTitle(x.apt)) +
+      (x.all ? '' : ' (' + esc(x.lack.map((m) => m.label).join(', ')) + ')') + '</button>').join(', ') + '.';
+  }
+  function gotoApt(id) {
+    const card = $('.apt-card[data-apt="' + id + '"]'); if (!card) return;
+    const inp = $$('[data-k="new"]', card).find((i) => !i.value) || $('[data-k="new"]', card);
+    card.scrollIntoView({ block: 'center' });
+    if (inp) inp.focus();
   }
   /** Actualizează valorile calculate dintr-un card fără a reconstrui câmpurile. */
   function updateCard(aptId, fillInputs) {
@@ -347,6 +395,7 @@
     $('[data-out="total"]', card).textContent = t.complete ? fmtNum(t.value) + ' m³'
       : (t.partial != null ? fmtNum(t.partial) + ' m³ (incomplet)' : '—');
     $('[data-out="msgs"]', card).innerHTML = msgs.map((x) => '<li class="' + x.level + '">' + esc(x.text) + '</li>').join('');
+    if (!fillInputs) renderMonthStatus();
   }
 
   function onLunaInput(ev) {
@@ -613,7 +662,9 @@
       const parts = ms.map((m) => { const c = consumption(k, apt.id, m.key); return { key: m.key, label: m.label, value: c }; });
       if (!parts.some((p) => p.value != null)) continue;
       const t = totalFor(k, apt);
-      out.push({ mk: k, parts, total: parts.reduce((s, p) => s + (p.value > 0 ? p.value : 0), 0), complete: t.complete });
+      const pt = totalFor(shiftMonth(k, -12), apt);
+      out.push({ mk: k, parts, total: parts.reduce((s, p) => s + (p.value > 0 ? p.value : 0), 0), complete: t.complete,
+        prev: pt.complete && pt.value >= 0 ? pt.value : null });
     }
     return out.slice(-12);
   }
@@ -625,8 +676,9 @@
     const ms = activeMeters(apt);
     const done = series.filter((s) => s.complete);
     const avg = done.length ? done.reduce((a, s) => a + s.total, 0) / done.length : null;
-    const legend = ms.length > 1 ? '<div class="chart-legend">' + ms.map((m) =>
-      '<span><i style="background:' + CHART_COLORS[m.key] + '"></i>' + m.label + '</span>').join('') + '</div>' : '';
+    const items = (ms.length > 1 ? ms.map((m) => '<span><i style="background:' + CHART_COLORS[m.key] + '"></i>' + m.label + '</span>') : [])
+      .concat(series.some((s) => s.prev != null) ? ['<span><i class="lg-prev"></i>aceeași lună, anul trecut</span>'] : []);
+    const legend = items.length ? '<div class="chart-legend">' + items.join('') + '</div>' : '';
     return '<div class="chart" data-chart="' + apt.id + '">' +
       '<p class="chart-sub muted">Consum lunar [m³]' + (avg != null ? ' · media: ' + (Math.round(avg * 10) / 10).toString().replace('.', ',') + ' m³/lună' : '') + '</p>' +
       legend + '<div class="chart-plot"></div><div class="chart-tip" hidden></div></div>';
@@ -650,7 +702,7 @@
       const W = Math.max(260, Math.round(plot.clientWidth || 320)), H = 190;
       const padL = 30, padR = 6, padT = 18, padB = 34;
       const iw = W - padL - padR, ih = H - padT - padB;
-      const maxV = niceMax(Math.max(...series.map((s) => s.total)));
+      const maxV = niceMax(Math.max(...series.map((s) => Math.max(s.total, s.prev || 0))));
       const y = (v) => padT + ih - (v / maxV) * ih;
       const slot = iw / series.length;
       const bw = Math.min(36, slot * 0.62);
@@ -678,7 +730,8 @@
             : '<rect fill="' + CHART_COLORS[p.key] + '" x="' + x + '" y="' + yt + '" width="' + bw + '" height="' + h + '"/>';
           acc += p.value;
         });
-        svg += '<text x="' + cx + '" y="' + (y(s.total) - 5) + '" class="val" text-anchor="middle">' + fmtNum(s.total) + (s.complete ? '' : '*') + '</text>';
+        if (s.prev != null) svg += '<line class="prevmark" x1="' + (x - 3) + '" x2="' + (x + bw + 3) + '" y1="' + y(s.prev) + '" y2="' + y(s.prev) + '"/>';
+        svg += '<text x="' + cx + '" y="' + (y(Math.max(s.total, 0)) - 5) + '" class="val" text-anchor="middle">' + fmtNum(s.total) + (s.complete ? '' : '*') + '</text>';
         if (i % showEvery === (series.length - 1) % showEvery) {
           const { y: yr, m } = mkParts(s.mk);
           svg += '<text x="' + cx + '" y="' + (H - padB + 15) + '" class="ax" text-anchor="middle">' + MONTHS_SHORT[m - 1] + '</text>';
@@ -707,7 +760,9 @@
     const s = chartData[el.dataset.chart][Number(hit.dataset.i)];
     tip.innerHTML = '<strong>' + esc(monthLabel(s.mk)) + '</strong>' +
       s.parts.map((p) => '<div><i style="background:' + CHART_COLORS[p.key] + '"></i>' + esc(p.label) + '<b>' + (p.value == null ? '—' : fmtNum(p.value)) + '</b></div>').join('') +
-      (s.parts.length > 1 ? '<div class="tot">Total<b>' + fmtNum(s.total) + (s.complete ? '' : '*') + ' m³</b></div>' : '');
+      (s.parts.length > 1 ? '<div class="tot">Total<b>' + fmtNum(s.total) + (s.complete ? '' : '*') + ' m³</b></div>' : '') +
+      (s.prev != null ? '<div class="tot">' + esc(monthLabel(shiftMonth(s.mk, -12))) + '<b>' + fmtNum(s.prev) + ' m³</b></div>' +
+        (s.complete && s.prev > 0 ? '<div>Diferență<b>' + esc(fmtDiff(s.total - s.prev, ((s.total - s.prev) / s.prev) * 100)) + '</b></div>' : '') : '');
     tip.hidden = false;
     const box = el.getBoundingClientRect(), hb = hit.getBoundingClientRect();
     const tw = tip.offsetWidth;
@@ -724,7 +779,7 @@
       const ms = activeMeters(apt);
       const keys = sortedKeys().filter((k) => entryHasData(entry(k, apt.id))).reverse();
       if (!keys.length) return '<div class="card"><h2>' + esc(aptTitle(apt)) + '</h2><p class="muted">Nicio lună completată încă.</p></div>';
-      const head = '<tr><th>Luna</th><th>Pers.</th>' + ms.map((m) => '<th>' + m.label + '<br>index nou</th><th>consum</th>').join('') + '<th>Total</th><th></th></tr>';
+      const head = '<tr><th>Luna</th><th>Pers.</th>' + ms.map((m) => '<th>' + m.label + '<br>index nou</th><th>consum</th>').join('') + '<th>Total</th><th>față de anul trecut</th><th></th></tr>';
       const rows = keys.map((k) => {
         const v = validate(k, apt);
         const cls = v.some((x) => x.level === 'error') ? 'flag flag-err' : (v.length ? 'flag' : '');
@@ -734,6 +789,7 @@
           '<td>' + monthLabel(k) + '</td><td>' + (p == null ? '' : p) + '</td>' +
           ms.map((m) => '<td>' + fmtNum(newIdx(k, apt.id, m.key)) + '</td><td>' + fmtNum(consumption(k, apt.id, m.key)) + '</td>').join('') +
           '<td><strong>' + (t.complete ? fmtNum(t.value) : '') + '</strong></td>' +
+          '<td class="yoy">' + (() => { const y = yoy(k, apt); return y ? esc(fmtDiff(y.diff, y.pct)) : ''; })() + '</td>' +
           '<td><button type="button" class="btn small" data-open="' + k + '">Deschide</button></td></tr>';
       }).join('');
       return '<div class="card"><h2>' + esc(aptTitle(apt)) + '</h2>' + chartHTML(apt) + '<div class="table-wrap"><table class="hist"><thead>' + head + '</thead><tbody>' + rows + '</tbody></table></div></div>';
@@ -771,13 +827,34 @@
     } else return;
     commit();
   }
+  // Mesaj scurt, neblocant, cu „Anulează”. Înlocuiește ferestrele de confirmare la ștergere.
+  let toastTimer = null, toastUndo = null;
+  function showUndo(text, undo, ms) {
+    toastUndo = undo;
+    $('#toast-text').textContent = text;
+    $('#toast').hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(hideToast, ms || 12000);
+  }
+  function hideToast() { clearTimeout(toastTimer); toastUndo = null; $('#toast').hidden = true; }
   function onAptClick(ev) {
     const b = ev.target.closest('[data-del]'); if (!b) return;
     const a = aptById(b.dataset.del); if (!a) return;
-    if (!confirm('Ștergi „' + aptTitle(a) + '”?\nSe șterg și toate indexurile lui din toate lunile. Operația nu poate fi anulată (doar dintr-un export JSON).')) return;
+    const idx = data.apartments.indexOf(a);
+    const removed = [];
+    for (const [mk, mo] of Object.entries(data.months)) if (mo.apts[a.id]) removed.push({ mk, period: mo.period, e: JSON.parse(JSON.stringify(mo.apts[a.id])) });
     data.apartments = data.apartments.filter((x) => x.id !== a.id);
     for (const mk of Object.keys(data.months)) { delete data.months[mk].apts[a.id]; cleanupMonth(mk); }
     commit(); renderApts();
+    showUndo('„' + aptTitle(a) + '” a fost șters, cu toate indexurile lui.', () => {
+      if (aptById(a.id)) return;
+      data.apartments.splice(Math.min(idx, data.apartments.length), 0, a);
+      for (const r of removed) {
+        const mo = data.months[r.mk] || (data.months[r.mk] = { period: r.period || null, apts: {} });
+        mo.apts[a.id] = r.e;
+      }
+      commit(); renderApts(); renderTab();
+    });
   }
 
   // ======================= TAB: DATE =======================
@@ -794,8 +871,32 @@
     btnC.hidden = !inf.configured || (inf.connected && inf.hasToken);
     btnC.textContent = inf.connected ? 'Reconectează Google Drive' : 'Conectează Google Drive';
     $('#btn-sync-now').hidden = !inf.connected;
+    $('#backup-card').hidden = !inf.connected;
+    $('#backup-info').textContent = inf.lastBackupDay
+      ? 'Ultima copie făcută automat: ' + inf.lastBackupDay + '. Se face câte una pe zi, la prima salvare, și se păstrează 14 zile plus începutul fiecărei luni din ultimul an.'
+      : 'Prima copie se face automat la următoarea salvare în Drive. Se face câte una pe zi.';
     $('#btn-disconnect').hidden = !inf.connected;
     $('#app-version').textContent = 'Versiune ' + APP_VERSION;
+  }
+  async function showBackups() {
+    const box = $('#backup-list'), btn = $('#btn-backups');
+    btn.disabled = true; box.innerHTML = '<p class="muted">Se încarcă…</p>';
+    try {
+      const list = await window.Sync.listBackups();
+      box.innerHTML = list.length
+        ? '<ul class="backup-list">' + list.map((b) => '<li><span>' + esc(b.day) + '</span><button type="button" class="btn small" data-restore="' + esc(b.id) + '" data-day="' + esc(b.day) + '">Restaurează</button></li>').join('') + '</ul>'
+        : '<p class="muted">Nu există încă nicio copie.</p>';
+    } catch (e) { box.innerHTML = '<p class="muted">Nu am putut citi copiile: ' + esc(e.message || e) + '</p>'; }
+    btn.disabled = false;
+  }
+  async function restoreBackup(id, day) {
+    let parsed;
+    try { parsed = normalize(await window.Sync.fetchBackup(id)); } catch (e) { alert('Nu am putut citi copia: ' + (e.message || e)); return; }
+    const nM = Object.keys(parsed.months).length;
+    if (!confirm('Restaurezi copia din ' + day + '?\n\nConține ' + parsed.apartments.length + ' apartamente și ' + nM + ' luni. Datele actuale sunt înlocuite (poți anula imediat după).')) return;
+    const before = JSON.parse(JSON.stringify(data));
+    data = parsed; commit(); renderTab();
+    showUndo('Am restaurat copia din ' + day + '.', () => { data = normalize(before); commit(); renderTab(); }, 20000);
   }
   function exportJson() {
     const d = new Date();
@@ -945,6 +1046,10 @@
     $('#btn-disconnect').addEventListener('click', () => {
       if (confirm('Deconectezi Google Drive pe acest dispozitiv? Datele rămân aici și în Drive; doar sincronizarea se oprește.')) { window.Sync.disconnect(); renderDate(); }
     });
+    $('#btn-backups').addEventListener('click', showBackups);
+    $('#backup-list').addEventListener('click', (e) => { const b = e.target.closest('[data-restore]'); if (b) restoreBackup(b.dataset.restore, b.dataset.day); });
+    $('#toast-undo').addEventListener('click', () => { const u = toastUndo; hideToast(); if (u) u(); });
+    $('#month-status').addEventListener('click', (e) => { const b = e.target.closest('[data-goto]'); if (b) gotoApt(b.dataset.goto); });
     $('#btn-export').addEventListener('click', exportJson);
     $('#import-file').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importJson(f); });
 

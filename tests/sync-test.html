@@ -32,13 +32,19 @@ window.fetch = async (url, opt = {}) => {
   const tok = ((opt.headers || {}).Authorization || '').replace('Bearer ', '');
   const J = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
   if (!validTokens.has(tok)) return J({ error: { message: 'Invalid Credentials' } }, 401);
-  const meta = (f) => ({ id: f.id, name: f.name, version: String(f.version), modifiedTime: f.modifiedTime, trashed: false });
+  const meta = (f) => ({ id: f.id, name: f.name, version: String(f.version), modifiedTime: f.modifiedTime, trashed: !!f.trashed });
   const m = url.match(/\/files\/([^?/]+)/);
-  if (method === 'GET' && !m) return J({ files: Object.values(server.files).map(meta) });
+  if (method === 'GET' && !m) return J({ files: Object.values(server.files).filter((f) => !f.trashed).map(meta) });
   if (method === 'GET' && m) {
     const f = server.files[m[1]]; if (!f) return J({ error: { message: 'nf' } }, 404);
     if (url.includes('alt=media')) return new Response(f.content, { status: 200 });
     return J(meta(f));
+  }
+  if (method === 'POST' && m && /\/copy/.test(url)) {
+    const src = server.files[m[1]]; if (!src) return J({ error: { message: 'nf' } }, 404);
+    const id = 'file' + (++server.n);
+    server.files[id] = { id, name: JSON.parse(opt.body).name, content: src.content, version: 1, modifiedTime: new Date().toISOString() };
+    return J(meta(server.files[id]));
   }
   if (method === 'POST') {
     const b = opt.body; const parts = b.split(/--apa\w+/);
@@ -47,6 +53,7 @@ window.fetch = async (url, opt = {}) => {
     server.files[id] = { id, name: JSON.parse(parts[1].split('\r\n\r\n')[1]).name, content, version: 1, modifiedTime: new Date().toISOString() };
     return J(meta(server.files[id]));
   }
+  if (method === 'PATCH' && m && !url.includes('uploadType=media')) { Object.assign(server.files[m[1]], JSON.parse(opt.body)); return J(meta(server.files[m[1]])); }
   if (method === 'PATCH' && m) { remoteWrite(m[1], opt.body); return J(meta(server.files[m[1]])); }
   return J({}, 400);
 };
@@ -67,11 +74,16 @@ let failed = 0;
 function check(name, cond, extra) { out.innerHTML += '<span class="' + (cond ? 'ok' : 'fail') + '">' + (cond ? '✔ ' : '✘ ') + name + (extra ? ' — ' + extra : '') + '</span>\n'; if (!cond) failed++; }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const file = () => Object.values(server.files)[0];
+const backups = () => Object.values(server.files).filter((f) => /^evidenta-apa-backup-/.test(f.name) && !f.trashed);
+const mainFiles = () => Object.values(server.files).filter((f) => !/^evidenta-apa-backup-/.test(f.name));
+const pad = (n) => String(n).padStart(2, '0');
+const todayStr = (() => { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); })();
 const status = () => Sync.status().text;
 function change(fn) { fn(); data.updatedAt = new Date().toISOString(); Sync.markDirty(); }
 const PEND = 'Salvat aici · se trimite după ce termini';
 </script>
 <script src="../merge.js"></script>
+<script src="../backup.js"></script>
 <script src="../drive.js"></script>
 <script>
 (async () => {
@@ -96,6 +108,8 @@ const PEND = 'Salvat aici · se trimite după ce termini';
   check('2. După debounce: o singură scriere pentru 2 modificări rapide', patches === 1, patches + ' PATCH');
   check('2. Conținut în Drive actualizat', JSON.parse(file().content).apartments[0].owner === 'X');
   check('2. Stare „Sincronizat”', status() === 'Sincronizat', status());
+  check('2. La prima salvare a zilei s-a făcut o copie de siguranță', backups().length === 1 && backups()[0].name === 'evidenta-apa-backup-' + todayStr + '.json', backups().map((b) => b.name).join());
+  check('2. Copia conține starea DINAINTE de suprascriere', JSON.parse(backups()[0].content).apartments[0].number === '1');
 
   // 3. modificare de pe alt dispozitiv, local curat → preluare automată
   remoteWrite(file().id, JSON.stringify({ schema: 1, apartments: [{ id: 'a', number: '3' }], months: {} }));
@@ -150,7 +164,7 @@ const PEND = 'Salvat aici · se trimite după ce termini';
   Sync.init(hooks);
   await Sync.connect();
   check('8. Dispozitiv nou, fără date: preia automat din Drive', data.apartments[0].number === 'DUPA-EXPIRARE' && setDataCalls === 1);
-  check('8. Nu s-a creat un al doilea fișier', Object.keys(server.files).length === 1);
+  check('8. Nu s-a creat un al doilea fișier', mainFiles().length === 1);
 
   // 9. dispozitiv nou CU date locale diferite → îmbinare (uniune), fără dialog
   localStorage.removeItem('evidenta-apa:sync'); localStorage.removeItem('evidenta-apa:base');
@@ -172,6 +186,24 @@ const PEND = 'Salvat aici · se trimite după ce termini';
   document.dispatchEvent(new Event('visibilitychange'));
   await sleep(150);
   check('10. La ascunderea paginii datele pleacă imediat', server.calls.slice(callsB).some((c) => c.startsWith('PATCH')) && JSON.parse(file().content).apartments[0].owner === 'LA-PLECARE');
+
+  // 11. a doua salvare în aceeași zi nu mai face copie; ziua nouă face și curăță copiile vechi
+  check('11. O singură copie pe zi (după mai multe salvări)', backups().length === 1, String(backups().length));
+  const addFile = (name) => { const id = 'file' + (++server.n); server.files[id] = { id, name, content: file().content, version: 1, modifiedTime: new Date().toISOString() }; return id; };
+  const oldId = addFile('evidenta-apa-backup-2020-01-01.json');
+  const recent = new Date(Date.now() - 3 * 86400000); const recentName = 'evidenta-apa-backup-' + recent.getFullYear() + '-' + pad(recent.getMonth() + 1) + '-' + pad(recent.getDate()) + '.json';
+  const recentId = addFile(recentName);
+  const lsm = JSON.parse(localStorage.getItem('evidenta-apa:sync')); lsm.lastBackupDay = '2000-01-01'; localStorage.setItem('evidenta-apa:sync', JSON.stringify(lsm));
+  (0, eval)(src); Sync.init(hooks);
+  Object.defineProperty(document, 'visibilityState', { get: () => 'visible', configurable: true });
+  data.apartments[0].owner = 'ZI-NOUA'; Sync.markDirty(); await sleep(900);
+  check('11. Ziua nouă: copiile mai vechi de un an sunt puse la gunoi', server.files[oldId].trashed === true);
+  check('11. Copia recentă (3 zile) se păstrează', !server.files[recentId].trashed);
+  check('11. Fișierul principal nu e atins', !file().trashed && JSON.parse(file().content).apartments[0].owner === 'ZI-NOUA');
+  const listed = await Sync.listBackups();
+  check('11. Lista copiilor pentru restaurare e sortată, cele noi primele', listed.length === 2 && listed[0].day >= listed[1].day, JSON.stringify(listed.map((l) => l.day)));
+  const restored = await Sync.fetchBackup(listed[0].id);
+  check('11. O copie poate fi descărcată pentru restaurare', Array.isArray(restored.apartments));
 
   out.innerHTML += '\n' + (failed ? '<span class="fail">' + failed + ' TESTE EȘUATE</span>' : '<span class="ok">TOATE TESTELE AU TRECUT</span>');
   document.title = failed ? 'FAIL ' + failed : 'PASS';
