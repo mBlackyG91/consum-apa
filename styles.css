@@ -190,3 +190,24 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
   .sheet { transform: none !important; position: static; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* ---------- Grafic consum (Istoric) ---------- */
+.chart { position: relative; margin: .2rem 0 1rem; }
+.chart-sub { margin: 0 0 .3rem; font-size: .9rem; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: .3rem 1rem; font-size: .85rem; color: var(--muted); margin-bottom: .2rem; }
+.chart-legend i, .chart-tip i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: .35rem; vertical-align: -1px; }
+.chart-plot { width: 100%; }
+.chart-plot svg { display: block; max-width: 100%; height: auto; overflow: visible; }
+.chart-plot .grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
+.chart-plot .base { stroke: var(--muted); stroke-width: 1; }
+.chart-plot .ax { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart-plot .ax.yr { font-size: 10px; }
+.chart-plot .val { fill: var(--fg); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.chart-plot .hit { fill: transparent; cursor: pointer; }
+.chart-plot .hit.on { fill: rgba(31, 78, 121, .07); }
+.chart-tip { position: absolute; top: 2.2rem; z-index: 2; min-width: 150px; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.12); padding: .45rem .6rem; font-size: .85rem; pointer-events: none; }
+.chart-tip div { display: flex; align-items: center; gap: .2rem; white-space: nowrap; }
+.chart-tip b { margin-left: auto; padding-left: .8rem; font-variant-numeric: tabular-nums; }
+.chart-tip .tot { border-top: 1px solid var(--line); margin-top: .25rem; padding-top: .25rem; font-weight: 600; }
+.chart-note { margin: .2rem 0 0; }
+@media print { .chart { display: none; } }

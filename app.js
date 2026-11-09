@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.1.1';
+  const APP_VERSION = '1.2.0';
   const LS_DATA = 'evidenta-apa:data';
   const LS_UI = 'evidenta-apa:ui';
 
@@ -600,6 +600,122 @@
     } finally { btn.disabled = false; btn.textContent = old; }
   }
 
+  // ======================= GRAFIC CONSUM =======================
+  const CHART_COLORS = { bucatarie: '#2a78d6', baie: '#eb6834', serviciu: '#1baf7a' };
+  const MONTHS_SHORT = ['ian', 'feb', 'mar', 'apr', 'mai', 'iun', 'iul', 'aug', 'sep', 'oct', 'noi', 'dec'];
+  const chartData = {};
+
+  /** Ultimele 12 luni cu cel puțin un consum calculat, în ordine cronologică. */
+  function chartSeries(apt) {
+    const ms = activeMeters(apt);
+    const out = [];
+    for (const k of sortedKeys()) {
+      const parts = ms.map((m) => { const c = consumption(k, apt.id, m.key); return { key: m.key, label: m.label, value: c }; });
+      if (!parts.some((p) => p.value != null)) continue;
+      const t = totalFor(k, apt);
+      out.push({ mk: k, parts, total: parts.reduce((s, p) => s + (p.value > 0 ? p.value : 0), 0), complete: t.complete });
+    }
+    return out.slice(-12);
+  }
+
+  function chartHTML(apt) {
+    const series = chartSeries(apt);
+    if (!series.length) return '';
+    chartData[apt.id] = series;
+    const ms = activeMeters(apt);
+    const done = series.filter((s) => s.complete);
+    const avg = done.length ? done.reduce((a, s) => a + s.total, 0) / done.length : null;
+    const legend = ms.length > 1 ? '<div class="chart-legend">' + ms.map((m) =>
+      '<span><i style="background:' + CHART_COLORS[m.key] + '"></i>' + m.label + '</span>').join('') + '</div>' : '';
+    return '<div class="chart" data-chart="' + apt.id + '">' +
+      '<p class="chart-sub muted">Consum lunar [m³]' + (avg != null ? ' · media: ' + (Math.round(avg * 10) / 10).toString().replace('.', ',') + ' m³/lună' : '') + '</p>' +
+      legend + '<div class="chart-plot"></div><div class="chart-tip" hidden></div></div>';
+  }
+
+  /** Maximul axei: 4 intervale egale, pași întregi (1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 40, 50…). */
+  function niceMax(v) {
+    if (v <= 0) return 4;
+    for (let mag = 1; ; mag *= 10) {
+      for (const f of [1, 1.5, 2, 2.5, 3, 4, 5, 7.5]) {
+        const st = f * mag;
+        if (Number.isInteger(st) && st * 4 >= v) return st * 4;
+      }
+    }
+  }
+
+  function drawCharts() {
+    for (const el of $$('#history .chart')) {
+      const series = chartData[el.dataset.chart];
+      const plot = $('.chart-plot', el);
+      const W = Math.max(260, Math.round(plot.clientWidth || 320)), H = 190;
+      const padL = 30, padR = 6, padT = 18, padB = 34;
+      const iw = W - padL - padR, ih = H - padT - padB;
+      const maxV = niceMax(Math.max(...series.map((s) => s.total)));
+      const y = (v) => padT + ih - (v / maxV) * ih;
+      const slot = iw / series.length;
+      const bw = Math.min(36, slot * 0.62);
+      let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="Grafic consum lunar">';
+      for (let i = 0; i <= 4; i++) {
+        const v = (maxV / 4) * i, yy = Math.round(y(v)) + 0.5;
+        svg += '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + yy + '" y2="' + yy + '" class="' + (i ? 'grid' : 'base') + '"/>' +
+          '<text x="' + (padL - 6) + '" y="' + (yy + 4) + '" class="ax" text-anchor="end">' + fmtNum(v) + '</text>';
+      }
+      const showEvery = slot < 30 ? 2 : 1;
+      let lastYr = null;
+      series.forEach((s, i) => {
+        const cx = padL + slot * i + slot / 2, x = cx - bw / 2;
+        let acc = 0;
+        const segs = s.parts.filter((p) => p.value > 0);
+        segs.forEach((p, j) => {
+          const y0 = y(acc), y1 = y(acc + p.value);
+          const top = j === segs.length - 1;
+          const gap = j > 0 ? 2 : 0; // spațiu de 2px între segmente
+          const h = Math.max(0, y0 - y1 - gap);
+          const r = top ? Math.min(4, h, bw / 2) : 0;
+          const yt = y1, yb = y1 + h;
+          svg += r
+            ? '<path fill="' + CHART_COLORS[p.key] + '" d="M' + x + ' ' + yb + 'V' + (yt + r) + 'Q' + x + ' ' + yt + ' ' + (x + r) + ' ' + yt + 'H' + (x + bw - r) + 'Q' + (x + bw) + ' ' + yt + ' ' + (x + bw) + ' ' + (yt + r) + 'V' + yb + 'Z"/>'
+            : '<rect fill="' + CHART_COLORS[p.key] + '" x="' + x + '" y="' + yt + '" width="' + bw + '" height="' + h + '"/>';
+          acc += p.value;
+        });
+        svg += '<text x="' + cx + '" y="' + (y(s.total) - 5) + '" class="val" text-anchor="middle">' + fmtNum(s.total) + (s.complete ? '' : '*') + '</text>';
+        if (i % showEvery === (series.length - 1) % showEvery) {
+          const { y: yr, m } = mkParts(s.mk);
+          svg += '<text x="' + cx + '" y="' + (H - padB + 15) + '" class="ax" text-anchor="middle">' + MONTHS_SHORT[m - 1] + '</text>';
+          if (yr !== lastYr) svg += '<text x="' + cx + '" y="' + (H - padB + 28) + '" class="ax yr" text-anchor="middle">' + yr + '</text>';
+          lastYr = yr;
+        }
+        svg += '<rect class="hit" data-i="' + i + '" x="' + (padL + slot * i) + '" y="' + padT + '" width="' + slot + '" height="' + (ih + padB) + '"/>';
+      });
+      svg += '</svg>';
+      plot.innerHTML = svg;
+      const note = series.some((s) => !s.complete);
+      let n = $('.chart-note', el);
+      if (note && !n) { n = document.createElement('p'); n.className = 'chart-note muted small'; n.textContent = '* lună incompletă (lipsește un index)'; el.appendChild(n); }
+    }
+  }
+
+  function chartTip(e) {
+    const hit = e.target.closest && e.target.closest('.chart .hit');
+    const el = e.target.closest && e.target.closest('.chart');
+    for (const t of $$('#history .chart-tip')) if (!el || t.parentNode !== el) t.hidden = true;
+    for (const h of $$('#history .hit.on')) if (h !== hit) h.classList.remove('on');
+    if (!el) return;
+    const tip = $('.chart-tip', el);
+    if (!hit) { tip.hidden = true; return; }
+    hit.classList.add('on');
+    const s = chartData[el.dataset.chart][Number(hit.dataset.i)];
+    tip.innerHTML = '<strong>' + esc(monthLabel(s.mk)) + '</strong>' +
+      s.parts.map((p) => '<div><i style="background:' + CHART_COLORS[p.key] + '"></i>' + esc(p.label) + '<b>' + (p.value == null ? '—' : fmtNum(p.value)) + '</b></div>').join('') +
+      (s.parts.length > 1 ? '<div class="tot">Total<b>' + fmtNum(s.total) + (s.complete ? '' : '*') + ' m³</b></div>' : '');
+    tip.hidden = false;
+    const box = el.getBoundingClientRect(), hb = hit.getBoundingClientRect();
+    const tw = tip.offsetWidth;
+    let left = hb.left - box.left + hb.width / 2 - tw / 2;
+    left = Math.max(0, Math.min(box.width - tw, left));
+    tip.style.left = left + 'px';
+  }
+
   // ======================= TAB: ISTORIC =======================
   function renderHistory() {
     const box = $('#history');
@@ -620,8 +736,9 @@
           '<td><strong>' + (t.complete ? fmtNum(t.value) : '') + '</strong></td>' +
           '<td><button type="button" class="btn small" data-open="' + k + '">Deschide</button></td></tr>';
       }).join('');
-      return '<div class="card"><h2>' + esc(aptTitle(apt)) + '</h2><div class="table-wrap"><table class="hist"><thead>' + head + '</thead><tbody>' + rows + '</tbody></table></div></div>';
+      return '<div class="card"><h2>' + esc(aptTitle(apt)) + '</h2>' + chartHTML(apt) + '<div class="table-wrap"><table class="hist"><thead>' + head + '</thead><tbody>' + rows + '</tbody></table></div></div>';
     }).join('');
+    drawCharts();
   }
 
   // ======================= TAB: APARTAMENTE =======================
@@ -774,6 +891,9 @@
     $('#btn-share-pdf').addEventListener('click', () => onPdf(true));
     window.addEventListener('beforeprint', () => { if (!$('#print-root').hidden) renderPrint(); });
     window.addEventListener('resize', sizeFrames);
+    let chartRz; window.addEventListener('resize', () => { clearTimeout(chartRz); chartRz = setTimeout(() => { if (ui.tab === 'istoric') drawCharts(); }, 150); });
+    document.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') chartTip(e); });
+    document.addEventListener('click', chartTip);
 
     $('#history').addEventListener('click', (e) => { const b = e.target.closest('[data-open]'); if (b) { ui.month = b.dataset.open; setTab('luna'); } });
 
