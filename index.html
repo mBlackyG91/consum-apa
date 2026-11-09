@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Consum apă</title>
+  <meta name="description" content="Evidența lunară a consumului de apă și înștiințări gata de tipărit">
+  <meta name="theme-color" content="#1f4e79">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Consum apă">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <div class="sticky">
+    <header class="topbar">
+      <h1>Consum apă</h1>
+      <button type="button" id="sync-badge" class="badge" data-code="local" aria-live="polite">…</button>
+    </header>
+    <nav class="tabs" role="tablist" aria-label="Secțiuni">
+      <button type="button" role="tab" data-tab="luna" aria-selected="true">Lună</button>
+      <button type="button" role="tab" data-tab="tiparire">Tipărire</button>
+      <button type="button" role="tab" data-tab="istoric">Istoric</button>
+      <button type="button" role="tab" data-tab="apartamente">Apartamente</button>
+      <button type="button" role="tab" data-tab="date">Date</button>
+    </nav>
+  </div>
+
+  <main>
+    <!-- ================= LUNĂ ================= -->
+    <section id="tab-luna" class="tab" role="tabpanel">
+      <div class="month-picker">
+        <button type="button" class="btn icon" id="month-prev" aria-label="Luna anterioară">‹</button>
+        <label class="sr-only" for="month-sel">Luna</label>
+        <select id="month-sel"></select>
+        <label class="sr-only" for="year-sel">Anul</label>
+        <select id="year-sel"></select>
+        <button type="button" class="btn icon" id="month-next" aria-label="Luna următoare">›</button>
+      </div>
+      <div class="field">
+        <label for="period">Perioada consumului</label>
+        <div class="with-reset">
+          <input id="period" type="text" autocomplete="off">
+          <button type="button" class="btn small" id="period-reset" hidden>Automat</button>
+        </div>
+      </div>
+      <div id="month-apts"></div>
+    </section>
+
+    <!-- ================= TIPĂRIRE ================= -->
+    <section id="tab-tiparire" class="tab" role="tabpanel" hidden>
+      <p class="muted" id="print-month-label"></p>
+      <fieldset class="field">
+        <legend>Formulare pe foaie</legend>
+        <div class="seg">
+          <label><input type="radio" name="per-sheet" value="2"> 2</label>
+          <label><input type="radio" name="per-sheet" value="3"> 3</label>
+        </div>
+      </fieldset>
+      <fieldset class="field">
+        <legend>Include la tipărire</legend>
+        <div id="print-include"></div>
+      </fieldset>
+      <div class="actions">
+        <button type="button" class="btn primary" id="btn-print">Tipărește</button>
+        <button type="button" class="btn" id="btn-pdf">Descarcă PDF</button>
+        <button type="button" class="btn" id="btn-share-pdf" hidden>Trimite PDF (tipărire de pe telefon)</button>
+      </div>
+      <p class="hint" id="print-hint"></p>
+      <h2 class="preview-title">Previzualizare</h2>
+    </section>
+
+    <!-- ================= ISTORIC ================= -->
+    <section id="tab-istoric" class="tab" role="tabpanel" hidden>
+      <div id="history"></div>
+    </section>
+
+    <!-- ================= APARTAMENTE ================= -->
+    <section id="tab-apartamente" class="tab" role="tabpanel" hidden>
+      <div id="apt-list"></div>
+      <button type="button" class="btn" id="apt-add">+ Adaugă apartament</button>
+    </section>
+
+    <!-- ================= DATE ================= -->
+    <section id="tab-date" class="tab" role="tabpanel" hidden>
+      <div class="card">
+        <h2>Google Drive</h2>
+        <p id="sync-detail"></p>
+        <div class="actions">
+          <button type="button" class="btn primary" id="btn-connect">Conectează Google Drive</button>
+          <button type="button" class="btn" id="btn-sync-now">Sincronizează acum</button>
+          <button type="button" class="btn" id="btn-disconnect">Deconectează</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Export / import manual</h2>
+        <p class="muted">Copie de siguranță a tuturor datelor într-un fișier JSON.</p>
+        <div class="actions">
+          <button type="button" class="btn" id="btn-export">Exportă JSON</button>
+          <label class="btn" for="import-file">Importă JSON</label>
+          <input type="file" id="import-file" accept="application/json,.json" class="sr-only">
+        </div>
+      </div>
+      <p class="muted small" id="app-version"></p>
+    </section>
+  </main>
+</div>
+
+<!-- Foile A4: previzualizare pe ecran, singurul conținut la tipărire. -->
+<div id="print-root" hidden></div>
+
+<!-- Conflict de sincronizare -->
+<dialog id="conflict-dlg" aria-labelledby="conflict-title">
+  <h2 id="conflict-title">Datele diferă</h2>
+  <p id="conflict-text"></p>
+  <div class="conflict-cols">
+    <div class="card"><h3>În Google Drive</h3><div id="conflict-remote"></div></div>
+    <div class="card"><h3>Pe acest dispozitiv</h3><div id="conflict-local"></div></div>
+  </div>
+  <div class="actions">
+    <button type="button" class="btn primary" id="conflict-use-remote">Folosește versiunea din Drive</button>
+    <button type="button" class="btn" id="conflict-use-local">Păstrează versiunea locală</button>
+    <button type="button" class="btn" id="conflict-export">Exportă întâi copia locală</button>
+  </div>
+</dialog>
+
+<script src="config.js"></script>
+<script src="drive.js"></script>
+<script src="pdf.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

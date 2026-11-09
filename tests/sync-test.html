@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<title>Test sincronizare (Drive simulat)</title>
+<style>body{font:14px/1.4 monospace;padding:16px}.ok{color:green}.fail{color:#b00;font-weight:bold}</style>
+</head>
+<body>
+<h1>Test sincronizare cu Drive simulat</h1>
+<p>Deschide pagina prin serverul local (http://localhost:...). Nu folosește Google real.</p>
+<pre id="out"></pre>
+<script>
+// ---------- mediu simulat ----------
+localStorage.removeItem('evidenta-apa:sync'); localStorage.removeItem('evidenta-apa:token');
+window.APP_CONFIG = { GOOGLE_CLIENT_ID: 'test-client.apps.googleusercontent.com', DRIVE_FILE_NAME: 'evidenta-apa.json', SAVE_DEBOUNCE_MS: 400 };
+let tokN = 0; const validTokens = new Set();
+window.google = { accounts: { oauth2: {
+  initTokenClient(cfg) { return { requestAccessToken() { setTimeout(() => { const t = 'tok' + (++tokN); validTokens.add(t); cfg.callback({ access_token: t, expires_in: 3600 }); }, 5); } }; },
+  hasGrantedAllScopes: () => true, revoke() {},
+} } };
+let online = true;
+Object.defineProperty(navigator, 'onLine', { get: () => online, configurable: true });
+const server = { files: {}, n: 0, calls: [] };
+function remoteWrite(id, content) { const f = server.files[id]; f.content = content; f.version++; f.modifiedTime = new Date().toISOString(); }
+const realFetch = window.fetch.bind(window);
+window.fetch = async (url, opt = {}) => {
+  url = String(url);
+  if (!url.includes('googleapis.com')) return realFetch(url, opt);
+  if (!online) throw new TypeError('Failed to fetch');
+  const method = opt.method || 'GET';
+  server.calls.push(method + ' ' + url.replace(/\?.*/, ''));
+  const tok = ((opt.headers || {}).Authorization || '').replace('Bearer ', '');
+  const J = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
+  if (!validTokens.has(tok)) return J({ error: { message: 'Invalid Credentials' } }, 401);
+  const meta = (f) => ({ id: f.id, name: f.name, version: String(f.version), modifiedTime: f.modifiedTime, trashed: false });
+  const m = url.match(/\/files\/([^?/]+)/);
+  if (method === 'GET' && !m) return J({ files: Object.values(server.files).map(meta) });
+  if (method === 'GET' && m) {
+    const f = server.files[m[1]]; if (!f) return J({ error: { message: 'nf' } }, 404);
+    if (url.includes('alt=media')) return new Response(f.content, { status: 200 });
+    return J(meta(f));
+  }
+  if (method === 'POST') {
+    const b = opt.body; const parts = b.split(/--apa\w+/);
+    const content = parts[2].split('\r\n\r\n').slice(1).join('\r\n\r\n').replace(/\r\n$/, '');
+    const id = 'file' + (++server.n);
+    server.files[id] = { id, name: JSON.parse(parts[1].split('\r\n\r\n')[1]).name, content, version: 1, modifiedTime: new Date().toISOString() };
+    return J(meta(server.files[id]));
+  }
+  if (method === 'PATCH' && m) { remoteWrite(m[1], opt.body); return J(meta(server.files[m[1]])); }
+  return J({}, 400);
+};
+
+// ---------- „aplicația” minimă ----------
+let data = { schema: 1, apartments: [{ id: 'a', number: '1' }], months: {} };
+let setDataCalls = 0, conflicts = [], statuses = [];
+const hooks = {
+  getData: () => data,
+  setData: (d) => { data = d; setDataCalls++; },
+  isPristine: (d) => !d.apartments.some((a) => a.number),
+  onStatus: (s) => statuses.push(s.text),
+  onConflict: (c) => conflicts.push(c),
+};
+const out = document.getElementById('out');
+let failed = 0;
+function check(name, cond, extra) { out.innerHTML += '<span class="' + (cond ? 'ok' : 'fail') + '">' + (cond ? '✔ ' : '✘ ') + name + (extra ? ' — ' + extra : '') + '</span>\n'; if (!cond) failed++; }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const file = () => Object.values(server.files)[0];
+const status = () => Sync.status().text;
+function change(fn) { fn(); Sync.markDirty(); }
+</script>
+<script src="../drive.js"></script>
+<script>
+(async () => {
+  Sync.init(hooks);
+  check('Neconectat: stare „Doar pe acest dispozitiv”', status() === 'Doar pe acest dispozitiv', status());
+
+  // 1. conectare, fișierul nu există → se creează
+  await sleep(50);
+  await Sync.connect();
+  check('1. Fișier creat în Drive la prima conectare', !!file() && JSON.parse(file().content).apartments[0].number === '1');
+  check('1. Stare „Sincronizat”', status() === 'Sincronizat', status());
+
+  // 2. modificare → debounce → PATCH
+  const callsBefore = server.calls.length;
+  change(() => { data.apartments[0].number = '2'; });
+  check('2. Imediat după modificare: „Se salvează…”', status() === 'Se salvează…', status());
+  await sleep(200);
+  check('2. Nimic trimis înainte de expirarea debounce', server.calls.length === callsBefore);
+  change(() => { data.apartments[0].owner = 'X'; });
+  await sleep(700);
+  const patches = server.calls.slice(callsBefore).filter((c) => c.startsWith('PATCH')).length;
+  check('2. După debounce: o singură scriere pentru 2 modificări rapide', patches === 1, patches + ' PATCH');
+  check('2. Conținut în Drive actualizat', JSON.parse(file().content).apartments[0].owner === 'X');
+  check('2. Stare „Sincronizat”', status() === 'Sincronizat', status());
+
+  // 3. modificare de pe alt dispozitiv, local curat → preluare automată
+  remoteWrite(file().id, JSON.stringify({ schema: 1, apartments: [{ id: 'a', number: '3' }], months: {} }));
+  await Sync.syncNow();
+  check('3. Versiunea din Drive preluată automat (fără modificări locale)', data.apartments[0].number === '3' && setDataCalls === 1);
+
+  // 4. ambele modificate → conflict, nu suprascrie
+  remoteWrite(file().id, JSON.stringify({ schema: 1, apartments: [{ id: 'a', number: 'REMOTE' }], months: {} }));
+  change(() => { data = { schema: 1, apartments: [{ id: 'a', number: 'LOCAL' }], months: {} }; });
+  await sleep(700);
+  check('4. Conflict detectat', conflicts.length === 1 && status() === 'Conflict: alege versiunea', status());
+  check('4. Drive NU a fost suprascris', JSON.parse(file().content).apartments[0].number === 'REMOTE');
+  Sync.resolveConflict('local');
+  await sleep(100);
+  check('4. Ales „local” → Drive conține versiunea locală', JSON.parse(file().content).apartments[0].number === 'LOCAL' && status() === 'Sincronizat', status());
+
+  remoteWrite(file().id, JSON.stringify({ schema: 1, apartments: [{ id: 'a', number: 'REMOTE2' }], months: {} }));
+  change(() => { data.apartments[0].number = 'LOCAL2'; });
+  await sleep(700);
+  check('5. Al doilea conflict detectat', conflicts.length === 2);
+  Sync.resolveConflict('remote');
+  check('5. Ales „Drive” → local = REMOTE2', data.apartments[0].number === 'REMOTE2' && status() === 'Sincronizat', status());
+
+  // 6. offline
+  online = false; window.dispatchEvent(new Event('offline'));
+  change(() => { data.apartments[0].number = 'OFFLINE'; });
+  await sleep(700);
+  check('6. Offline: stare „Offline, se va sincroniza”', status() === 'Offline, se va sincroniza', status());
+  check('6. Offline: Drive neschimbat', JSON.parse(file().content).apartments[0].number === 'REMOTE2');
+  online = true; window.dispatchEvent(new Event('online'));
+  await sleep(150);
+  check('6. La reconectare: modificarea ajunge în Drive', JSON.parse(file().content).apartments[0].number === 'OFFLINE' && status() === 'Sincronizat', status());
+
+  // 7. token expirat / revocat pe server
+  validTokens.clear();
+  change(() => { data.apartments[0].number = 'DUPA-EXPIRARE'; });
+  await sleep(700);
+  check('7. Token expirat: stare „Reconectează Google Drive”', status() === 'Reconectează Google Drive', status());
+  check('7. Datele locale păstrate', data.apartments[0].number === 'DUPA-EXPIRARE' && Sync.info().dirty);
+  await Sync.connect();
+  check('7. După reconectare: modificarea ajunge în Drive', JSON.parse(file().content).apartments[0].number === 'DUPA-EXPIRARE' && status() === 'Sincronizat', status());
+
+  // 8. al doilea dispozitiv (cache gol) → preia din Drive
+  localStorage.removeItem('evidenta-apa:sync');
+  data = { schema: 1, apartments: [{ id: 'z', number: '' }], months: {} }; setDataCalls = 0;
+  const src = await (await fetch('../drive.js')).text();
+  (0, eval)(src);
+  Sync.init(hooks);
+  await Sync.connect();
+  check('8. Dispozitiv nou, fără date: preia automat din Drive', data.apartments[0].number === 'DUPA-EXPIRARE' && setDataCalls === 1);
+  check('8. Nu s-a creat un al doilea fișier', Object.keys(server.files).length === 1);
+
+  // 9. dispozitiv nou CU date locale diferite → întreabă
+  localStorage.removeItem('evidenta-apa:sync');
+  data = { schema: 1, apartments: [{ id: 'q', number: '99' }], months: {} };
+  (0, eval)(src);
+  Sync.init(hooks);
+  await Sync.connect();
+  const c = conflicts[conflicts.length - 1];
+  check('9. Dispozitiv nou cu date proprii: conflict „firstOnDevice”', conflicts.length === 3 && c.firstOnDevice === true);
+  check('9. Drive nu a fost suprascris', JSON.parse(file().content).apartments[0].number === 'DUPA-EXPIRARE');
+
+  out.innerHTML += '\n' + (failed ? '<span class="fail">' + failed + ' TESTE EȘUATE</span>' : '<span class="ok">TOATE TESTELE AU TRECUT</span>');
+  document.title = failed ? 'FAIL ' + failed : 'PASS';
+})().catch((e) => { out.innerHTML += '<span class="fail">EXCEPȚIE: ' + e.stack + '</span>'; document.title = 'FAIL exc'; });
+</script>
+</body>
+</html>
