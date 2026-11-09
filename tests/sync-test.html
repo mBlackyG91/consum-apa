@@ -11,7 +11,7 @@
 <pre id="out"></pre>
 <script>
 // ---------- mediu simulat ----------
-localStorage.removeItem('evidenta-apa:sync'); localStorage.removeItem('evidenta-apa:token');
+localStorage.removeItem('evidenta-apa:sync'); localStorage.removeItem('evidenta-apa:token'); localStorage.removeItem('evidenta-apa:base');
 window.APP_CONFIG = { GOOGLE_CLIENT_ID: 'test-client.apps.googleusercontent.com', DRIVE_FILE_NAME: 'evidenta-apa.json', SAVE_DEBOUNCE_MS: 400 };
 let tokN = 0; const validTokens = new Set();
 window.google = { accounts: { oauth2: {
@@ -53,13 +53,14 @@ window.fetch = async (url, opt = {}) => {
 
 // ---------- „aplicația” minimă ----------
 let data = { schema: 1, apartments: [{ id: 'a', number: '1' }], months: {} };
-let setDataCalls = 0, conflicts = [], statuses = [];
+let setDataCalls = 0, merges = [], statuses = [];
 const hooks = {
   getData: () => data,
   setData: (d) => { data = d; setDataCalls++; },
   isPristine: (d) => !d.apartments.some((a) => a.number),
   onStatus: (s) => statuses.push(s.text),
-  onConflict: (c) => conflicts.push(c),
+  merge: (b, l, r) => Merge.merge(b, l, r),
+  onMerge: (notes) => merges.push(notes),
 };
 const out = document.getElementById('out');
 let failed = 0;
@@ -67,8 +68,10 @@ function check(name, cond, extra) { out.innerHTML += '<span class="' + (cond ? '
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const file = () => Object.values(server.files)[0];
 const status = () => Sync.status().text;
-function change(fn) { fn(); Sync.markDirty(); }
+function change(fn) { fn(); data.updatedAt = new Date().toISOString(); Sync.markDirty(); }
+const PEND = 'Salvat aici · se trimite după ce termini';
 </script>
+<script src="../merge.js"></script>
 <script src="../drive.js"></script>
 <script>
 (async () => {
@@ -84,7 +87,7 @@ function change(fn) { fn(); Sync.markDirty(); }
   // 2. modificare → debounce → PATCH
   const callsBefore = server.calls.length;
   change(() => { data.apartments[0].number = '2'; });
-  check('2. Imediat după modificare: „Se salvează…”', status() === 'Se salvează…', status());
+  check('2. Imediat după modificare: „se trimite după ce termini”', status() === PEND, status());
   await sleep(200);
   check('2. Nimic trimis înainte de expirarea debounce', server.calls.length === callsBefore);
   change(() => { data.apartments[0].owner = 'X'; });
@@ -99,29 +102,33 @@ function change(fn) { fn(); Sync.markDirty(); }
   await Sync.syncNow();
   check('3. Versiunea din Drive preluată automat (fără modificări locale)', data.apartments[0].number === '3' && setDataCalls === 1);
 
-  // 4. ambele modificate → conflict, nu suprascrie
-  remoteWrite(file().id, JSON.stringify({ schema: 1, apartments: [{ id: 'a', number: 'REMOTE' }], months: {} }));
-  change(() => { data = { schema: 1, apartments: [{ id: 'a', number: 'LOCAL' }], months: {} }; });
-  await sleep(700);
-  check('4. Conflict detectat', conflicts.length === 1 && status() === 'Conflict: alege versiunea', status());
-  check('4. Drive NU a fost suprascris', JSON.parse(file().content).apartments[0].number === 'REMOTE');
-  Sync.resolveConflict('local');
-  await sleep(100);
-  check('4. Ales „local” → Drive conține versiunea locală', JSON.parse(file().content).apartments[0].number === 'LOCAL' && status() === 'Sincronizat', status());
+  // 4. ambele părți modificate, câmpuri DIFERITE → îmbinare automată, fără dialog și fără notă
+  const dr = () => JSON.parse(file().content);
+  remoteWrite(file().id, JSON.stringify({ schema: 1, updatedAt: '2030-01-01T00:00:00Z', apartments: [{ id: 'a', number: '3', owner: 'DIN-DRIVE' }], months: {} }));
+  change(() => { data.apartments[0].defaultPersons = 4; });
+  await sleep(900);
+  check('4. Fără dialog: nicio notă de conflict', merges.length === 0);
+  check('4. Ambele modificări sunt în Drive', dr().apartments[0].owner === 'DIN-DRIVE' && dr().apartments[0].defaultPersons === 4, JSON.stringify(dr().apartments[0]));
+  check('4. Ambele modificări sunt și local', data.apartments[0].owner === 'DIN-DRIVE' && data.apartments[0].defaultPersons === 4);
+  check('4. Stare „Sincronizat”', status() === 'Sincronizat', status());
 
-  remoteWrite(file().id, JSON.stringify({ schema: 1, apartments: [{ id: 'a', number: 'REMOTE2' }], months: {} }));
+  // 5. ACEEAȘI valoare schimbată pe ambele → câștigă cea mai recentă + notă
+  remoteWrite(file().id, JSON.stringify({ schema: 1, updatedAt: '2000-01-01T00:00:00Z', apartments: [{ id: 'a', number: 'REMOTE2', owner: 'DIN-DRIVE', defaultPersons: 4 }], months: {} }));
   change(() => { data.apartments[0].number = 'LOCAL2'; });
-  await sleep(700);
-  check('5. Al doilea conflict detectat', conflicts.length === 2);
-  Sync.resolveConflict('remote');
-  check('5. Ales „Drive” → local = REMOTE2', data.apartments[0].number === 'REMOTE2' && status() === 'Sincronizat', status());
+  await sleep(900);
+  check('5. Valoare schimbată pe ambele: câștigă cea mai recentă (local)', dr().apartments[0].number === 'LOCAL2' && data.apartments[0].number === 'LOCAL2');
+  check('5. Utilizatorul primește o notă cu valoarea înlocuită', merges.length === 1 && merges[0][0].remote === 'REMOTE2' && merges[0][0].kept === 'local');
+  remoteWrite(file().id, JSON.stringify({ schema: 1, updatedAt: '2999-01-01T00:00:00Z', apartments: [{ id: 'a', number: 'REMOTE3', owner: 'DIN-DRIVE', defaultPersons: 4 }], months: {} }));
+  change(() => { data.apartments[0].number = 'LOCAL3'; });
+  await sleep(900);
+  check('5. Când Drive e mai recent, câștigă Drive și apare nota', data.apartments[0].number === 'REMOTE3' && merges.length === 2 && merges[1][0].kept === 'remote');
 
   // 6. offline
   online = false; window.dispatchEvent(new Event('offline'));
   change(() => { data.apartments[0].number = 'OFFLINE'; });
   await sleep(700);
   check('6. Offline: stare „Offline, se va sincroniza”', status() === 'Offline, se va sincroniza', status());
-  check('6. Offline: Drive neschimbat', JSON.parse(file().content).apartments[0].number === 'REMOTE2');
+  check('6. Offline: Drive neschimbat', JSON.parse(file().content).apartments[0].number === 'REMOTE3');
   online = true; window.dispatchEvent(new Event('online'));
   await sleep(150);
   check('6. La reconectare: modificarea ajunge în Drive', JSON.parse(file().content).apartments[0].number === 'OFFLINE' && status() === 'Sincronizat', status());
@@ -136,7 +143,7 @@ function change(fn) { fn(); Sync.markDirty(); }
   check('7. După reconectare: modificarea ajunge în Drive', JSON.parse(file().content).apartments[0].number === 'DUPA-EXPIRARE' && status() === 'Sincronizat', status());
 
   // 8. al doilea dispozitiv (cache gol) → preia din Drive
-  localStorage.removeItem('evidenta-apa:sync');
+  localStorage.removeItem('evidenta-apa:sync'); localStorage.removeItem('evidenta-apa:base');
   data = { schema: 1, apartments: [{ id: 'z', number: '' }], months: {} }; setDataCalls = 0;
   const src = await (await fetch('../drive.js')).text();
   (0, eval)(src);
@@ -145,15 +152,26 @@ function change(fn) { fn(); Sync.markDirty(); }
   check('8. Dispozitiv nou, fără date: preia automat din Drive', data.apartments[0].number === 'DUPA-EXPIRARE' && setDataCalls === 1);
   check('8. Nu s-a creat un al doilea fișier', Object.keys(server.files).length === 1);
 
-  // 9. dispozitiv nou CU date locale diferite → întreabă
-  localStorage.removeItem('evidenta-apa:sync');
-  data = { schema: 1, apartments: [{ id: 'q', number: '99' }], months: {} };
+  // 9. dispozitiv nou CU date locale diferite → îmbinare (uniune), fără dialog
+  localStorage.removeItem('evidenta-apa:sync'); localStorage.removeItem('evidenta-apa:base');
+  data = { schema: 1, updatedAt: new Date().toISOString(), apartments: [{ id: 'q', number: '99' }], months: {} };
+  const mBefore = merges.length;
   (0, eval)(src);
   Sync.init(hooks);
   await Sync.connect();
-  const c = conflicts[conflicts.length - 1];
-  check('9. Dispozitiv nou cu date proprii: conflict „firstOnDevice”', conflicts.length === 3 && c.firstOnDevice === true);
-  check('9. Drive nu a fost suprascris', JSON.parse(file().content).apartments[0].number === 'DUPA-EXPIRARE');
+  await sleep(100);
+  const nums9 = data.apartments.map((a) => a.number).sort().join();
+  check('9. Dispozitiv nou cu date proprii: ambele seturi de apartamente păstrate', nums9 === '99,DUPA-EXPIRARE', nums9);
+  check('9. Fără conflict și fără notă', merges.length === mBefore);
+  check('9. Rezultatul îmbinat este și în Drive', JSON.parse(file().content).apartments.length === 2);
+
+  // 10. plecarea din pagină trimite imediat, fără să aștepte pauza
+  const callsB = server.calls.length;
+  data.apartments[0].owner = 'LA-PLECARE'; Sync.markDirty();
+  Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true });
+  document.dispatchEvent(new Event('visibilitychange'));
+  await sleep(150);
+  check('10. La ascunderea paginii datele pleacă imediat', server.calls.slice(callsB).some((c) => c.startsWith('PATCH')) && JSON.parse(file().content).apartments[0].owner === 'LA-PLECARE');
 
   out.innerHTML += '\n' + (failed ? '<span class="fail">' + failed + ' TESTE EȘUATE</span>' : '<span class="ok">TOATE TESTELE AU TRECUT</span>');
   document.title = failed ? 'FAIL ' + failed : 'PASS';

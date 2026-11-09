@@ -39,6 +39,7 @@ Funcționează și fără internet. Se poate „instala” pe telefon ca aplica�
 | `styles.css` | Aspectul pe ecran și **la tipărire** (`@media print`) |
 | `app.js` | Logica: apartamente, luni, calcule, validări, istoric, tipărire, PDF |
 | `drive.js` | Autentificare Google și sincronizare cu Drive |
+| `merge.js` | Îmbinarea automată a modificărilor făcute pe dispozitive diferite |
 | `pdf.js` | Generator PDF (fără biblioteci externe) |
 | `config.js` | **Singurul fișier pe care îl modifici**: Client ID-ul Google |
 | `privacy.html` | Politica de confidențialitate (cerută de Google pentru „In production”) |
@@ -207,9 +208,11 @@ Secțiunea **Tipărire** folosește luna selectată în secțiunea **Lună**.
 
 ## 10. Sincronizare: cum funcționează
 
-- Orice modificare se salvează **imediat** pe dispozitiv (localStorage), apoi în Drive după **2 secunde** de pauză.
-- La pornire, la reconectarea la internet și când revii în aplicație, ea verifică dacă fișierul din Drive s-a schimbat (după versiunea fișierului).
-- Dacă Drive-ul a fost modificat de pe alt dispozitiv **și** ai modificări nesincronizate aici, aplicația **nu suprascrie nimic**: îți arată ambele versiuni și alegi „Folosește versiunea din Drive” sau „Păstrează versiunea locală” (poți exporta întâi copia locală).
+- Orice modificare se salvează **imediat** pe dispozitiv (localStorage). **Nu se trimite în Drive cât timp scrii.**
+- Trimiterea în Drive are loc după o **pauză de 8 secunde** fără nicio tastă (`SAVE_DEBOUNCE_MS` în `config.js`), când ascunzi sau închizi aplicația, sau când apeși „Sincronizează acum”. Insigna din dreapta-sus arată „Salvat aici · se trimite după ce termini” până atunci.
+- La pornire, la reconectarea la internet și când revii în aplicație, ea verifică dacă fișierul din Drive s-a schimbat (după versiunea fișierului) și preia modificările de pe celelalte dispozitive.
+- **Nu există ferestre de conflict.** Dacă ai modificări aici și s-a modificat și Drive-ul, aplicația le îmbină automat, valoare cu valoare (index, număr de persoane, nume etc.), comparând cu ultima versiune sincronizată. Modificările pe câmpuri diferite se păstrează toate. Doar dacă **aceeași valoare** a fost schimbată diferit pe două dispozitive, rămâne cea mai recentă, iar sub taburi apare o notă („Vezi ce s-a înlocuit”) cu valoarea înlocuită, ca să o poți reintroduce dacă era cea corectă.
+- Conectarea Google expiră după aproximativ o oră (limită a Google pentru aplicațiile fără server). Până la reconectare (insigna roșie sau bannerul galben), aplicația **nu vede** modificările de pe alte dispozitive, deci reconectează-te înainte să introduci date noi.
 - Fișierul `evidenta-apa.json` din Drive este text JSON; nu îl edita manual decât dacă știi ce faci. Dacă îl ștergi din Drive, aplicația îl recreează din datele locale.
 
 ---
@@ -217,7 +220,7 @@ Secțiunea **Tipărire** folosește luna selectată în secțiunea **Lună**.
 ## 11. Actualizarea aplicației
 
 Încarcă fișierele modificate în GitHub (Add file → Upload files, peste cele vechi). Aplicația instalată își actualizează fișierele în fundal: versiunea nouă apare **la a doua deschidere**.
-Dacă adaugi fișiere noi în aplicație, adaugă-le și în lista `ASSETS` din `sw.js` și schimbă `consum-apa-v6` în `consum-apa-v7`.
+Dacă adaugi fișiere noi în aplicație, adaugă-le și în lista `ASSETS` din `sw.js` și mărește numărul versiunii din `const CACHE = 'consum-apa-vN'` (ex. `consum-apa-v8` → `consum-apa-v9`).
 
 ---
 
@@ -231,7 +234,7 @@ python -m http.server 8765
 
 Deschide <http://localhost:8765>. Pentru Drive, adaugă `http://localhost:8765` la *Authorized JavaScript origins* (pasul 5).
 
-Testul automat al sincronizării (cu un Drive **simulat**, fără cont Google): <http://localhost:8765/tests/sync-test.html> – trebuie să afișeze „TOATE TESTELE AU TRECUT”.
+Testul automat al sincronizării (cu un Drive **simulat**, fără cont Google): <http://localhost:8765/tests/sync-test.html> – trebuie să afișeze „TOATE TESTELE AU TRECUT”. Testul logicii de îmbinare (necesită Node.js): `node tests/merge-test.js`.
 
 ---
 

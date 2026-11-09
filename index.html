@@ -31,6 +31,16 @@
     </nav>
   </div>
 
+  <div id="auth-notice" class="notice warn" role="status" hidden>
+    <p>Conectarea la Google Drive a expirat. Până te reconectezi, nu vezi modificările făcute pe alte dispozitive.</p>
+    <button type="button" class="btn small" id="auth-notice-btn">Reconectează Google Drive</button>
+  </div>
+  <div id="notice" class="notice" role="status" hidden>
+    <p id="notice-text"></p>
+    <details><summary>Vezi ce s-a înlocuit</summary><ul id="notice-list"></ul></details>
+    <button type="button" class="btn small" id="notice-close">Am înțeles</button>
+  </div>
+
   <main>
     <!-- ================= LUNĂ ================= -->
     <section id="tab-luna" class="tab" role="tabpanel">
@@ -115,22 +125,8 @@
 <!-- Foile A4: previzualizare pe ecran, singurul conținut la tipărire. -->
 <div id="print-root" hidden></div>
 
-<!-- Conflict de sincronizare -->
-<dialog id="conflict-dlg" aria-labelledby="conflict-title">
-  <h2 id="conflict-title">Datele diferă</h2>
-  <p id="conflict-text"></p>
-  <div class="conflict-cols">
-    <div class="card"><h3>În Google Drive</h3><div id="conflict-remote"></div></div>
-    <div class="card"><h3>Pe acest dispozitiv</h3><div id="conflict-local"></div></div>
-  </div>
-  <div class="actions">
-    <button type="button" class="btn primary" id="conflict-use-remote">Folosește versiunea din Drive</button>
-    <button type="button" class="btn" id="conflict-use-local">Păstrează versiunea locală</button>
-    <button type="button" class="btn" id="conflict-export">Exportă întâi copia locală</button>
-  </div>
-</dialog>
-
 <script src="config.js"></script>
+<script src="merge.js"></script>
 <script src="drive.js"></script>
 <script src="pdf.js"></script>
 <script src="app.js"></script>

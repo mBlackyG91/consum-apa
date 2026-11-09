@@ -11,6 +11,7 @@ window.APP_CONFIG = {
   // Numele fișierului de date din Google Drive.
   DRIVE_FILE_NAME: 'evidenta-apa.json',
 
-  // Întârzierea (ms) după ultima modificare înainte de salvarea în Drive.
-  SAVE_DEBOUNCE_MS: 2000,
+  // Pauza (ms) fără nicio tastă după care datele sunt trimise în Drive.
+  // Se trimit imediat și când pleci din pagină sau apeși „Sincronizează acum”.
+  SAVE_DEBOUNCE_MS: 8000,
 };

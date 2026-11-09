@@ -2,11 +2,15 @@
  *
  * Model:
  *  - datele locale (localStorage) sunt sursa imediată; fiecare modificare
- *    crește un contor "rev". Drive primește datele după SAVE_DEBOUNCE_MS.
- *  - ținem minte "version" a fișierului din Drive la ultima sincronizare.
- *    Dacă la următoarea sincronizare versiunea din Drive e alta, fișierul a
- *    fost modificat de pe alt dispozitiv: dacă nici local nu avem modificări,
- *    preluăm versiunea din Drive; altfel cerem utilizatorului să aleagă.
+ *    crește un contor "rev". Drive primește datele abia după ce utilizatorul
+ *    face o pauză (SAVE_DEBOUNCE_MS), când pleacă din pagină sau apasă
+ *    „Sincronizează acum”. Sincronizarea nu întrerupe niciodată introducerea.
+ *  - ținem minte "version" a fișierului din Drive la ultima sincronizare și
+ *    o copie a datelor la acel moment ("baza").
+ *    Dacă versiunea din Drive e alta, fișierul a fost modificat de pe alt
+ *    dispozitiv: dacă local nu avem modificări, preluăm versiunea din Drive;
+ *    altfel ÎMBINĂM automat (merge.js) pe baza celor 3 versiuni: bază, local,
+ *    Drive. Fără ferestre și fără alegeri manuale.
  */
 (function () {
   'use strict';
@@ -19,8 +23,9 @@
   const META_FIELDS = 'id,name,modifiedTime,version,trashed';
   const LS_META = 'evidenta-apa:sync';
   const LS_TOKEN = 'evidenta-apa:token';
+  const LS_BASE = 'evidenta-apa:base';
 
-  const hooks = { getData: null, setData: null, onStatus: null, onConflict: null, isPristine: null };
+  const hooks = { getData: null, setData: null, onStatus: null, onMerge: null, isPristine: null, merge: null };
 
   function readLS(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
   function writeLS(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* plin sau blocat */ } }
@@ -35,6 +40,8 @@
     lastSyncAt: null,
   }, readLS(LS_META) || {});
   let token = readLS(LS_TOKEN); // { access_token, expires_at }
+  let base = readLS(LS_BASE);   // datele la ultima sincronizare (strămoșul comun pentru îmbinare)
+  function setBase(d) { base = d ? JSON.parse(JSON.stringify(d)) : null; writeLS(LS_BASE, base); }
 
   let tokenClient = null;
   let gisState = 'idle'; // idle | loading | ready | failed
@@ -44,7 +51,6 @@
   let again = false;
   let needAuth = false;
   let lastError = null;
-  let conflict = null;   // { remoteData, remoteMeta }
   let lastRunAt = 0;
 
   function saveMeta() { writeLS(LS_META, meta); }
@@ -56,21 +62,21 @@
   function status() {
     if (!isConfigured()) return { code: 'local', text: 'Doar local (Drive neconfigurat)' };
     if (!meta.connected) return { code: 'local', text: 'Doar pe acest dispozitiv' };
-    if (conflict) return { code: 'conflict', text: 'Conflict: alege versiunea' };
     if (!navigator.onLine) return isDirty()
       ? { code: 'offline', text: 'Offline, se va sincroniza' }
       : { code: 'offline', text: 'Offline' };
     if (needAuth || !hasToken()) return { code: 'auth', text: 'Reconectează Google Drive' };
-    if (busy || timer || isDirty()) return lastError && !busy && !timer
+    if (busy) return { code: 'saving', text: 'Se sincronizează…' };
+    if (timer || isDirty()) return lastError && !timer
       ? { code: 'error', text: 'Eroare de sincronizare, încearcă din nou' }
-      : { code: 'saving', text: 'Se salvează…' };
+      : { code: 'pending', text: 'Salvat aici · se trimite după ce termini' };
     if (lastError) return { code: 'error', text: 'Eroare de sincronizare, încearcă din nou' };
     return { code: 'ok', text: 'Sincronizat' };
   }
   function emit() { if (hooks.onStatus) hooks.onStatus(status(), info()); }
   function info() {
     return { connected: meta.connected, configured: isConfigured(), lastSyncAt: meta.lastSyncAt,
-      dirty: isDirty(), hasToken: hasToken(), error: lastError ? lastError.message : null, conflict: !!conflict };
+      dirty: isDirty(), hasToken: hasToken(), error: lastError ? lastError.message : null };
   }
 
   // ---------- Google Identity Services ----------
@@ -193,7 +199,7 @@
 
   // ---------- sincronizare ----------
   function canRun() {
-    return isConfigured() && meta.connected && !conflict && navigator.onLine && hasToken();
+    return isConfigured() && meta.connected && navigator.onLine && hasToken();
   }
 
   async function run() {
@@ -231,43 +237,51 @@
     }
     if (!remote) {
       const rev = meta.rev;
-      const created = await createFile(hooks.getData());
+      const snap = hooks.getData();
+      const created = await createFile(snap);
       meta.fileId = created.id; meta.version = String(created.version); meta.modifiedTime = created.modifiedTime;
-      meta.syncedRev = rev; saveMeta();
+      meta.syncedRev = rev; setBase(snap); saveMeta();
       return;
     }
 
     // 2. Drive modificat de altcineva de la ultima sincronizare?
     if (String(remote.version) !== String(meta.version)) {
       const remoteData = await download(remote.id);
+      // De aici până la setData nu există niciun „await”: ce îmbinăm este exact ce e pe ecran.
       const local = hooks.getData();
       const firstOnDevice = meta.version === null;
+      const seen = () => { meta.version = String(remote.version); meta.modifiedTime = remote.modifiedTime; };
       if (sameContent(remoteData, local)) {
-        meta.version = String(remote.version); meta.modifiedTime = remote.modifiedTime; meta.syncedRev = meta.rev;
-        saveMeta();
+        seen(); meta.syncedRev = meta.rev; setBase(remoteData); saveMeta();
         return;
       }
       if ((!firstOnDevice && !isDirty()) || (firstOnDevice && hooks.isPristine && hooks.isPristine(local))) {
         hooks.setData(remoteData);
-        meta.version = String(remote.version); meta.modifiedTime = remote.modifiedTime; meta.syncedRev = meta.rev;
-        saveMeta();
+        seen(); meta.syncedRev = meta.rev; setBase(remoteData); saveMeta();
         return;
       }
-      conflict = { remoteData, remoteMeta: remote };
-      emit();
-      if (hooks.onConflict) hooks.onConflict({
-        remoteData, local, remoteModifiedTime: remote.modifiedTime, firstOnDevice,
-      });
-      return;
+      // Ambele părți au modificări: îmbinare automată, apoi trimitem rezultatul.
+      const res = hooks.merge(base, local, remoteData);
+      hooks.setData(res.data);
+      seen(); setBase(remoteData); meta.rev++; saveMeta();
+      if (res.notes && res.notes.length && hooks.onMerge) hooks.onMerge(res.notes, res.data);
+      // continuă la pasul 3: rezultatul îmbinat ajunge în Drive
     }
 
     // 3. Avem modificări locale: le scriem.
     if (isDirty()) {
       const rev = meta.rev;
-      const updated = await updateFile(meta.fileId, hooks.getData());
+      const snap = hooks.getData();
+      const updated = await updateFile(meta.fileId, snap);
       meta.version = String(updated.version); meta.modifiedTime = updated.modifiedTime;
-      meta.syncedRev = rev; saveMeta();
+      meta.syncedRev = rev; setBase(snap); saveMeta();
     }
+  }
+
+  function flush() {
+    if (!meta.connected || !isDirty()) return;
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (canRun()) run();
   }
 
   // ---------- API public ----------
@@ -279,19 +293,23 @@
       window.addEventListener('online', () => { emit(); run(); });
       window.addEventListener('offline', emit);
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && Date.now() - lastRunAt > 20000) run();
+        if (document.visibilityState === 'visible') { if (Date.now() - lastRunAt > 20000) run(); }
+        else flush();
       });
+      window.addEventListener('pagehide', flush);
       emit();
       if (canRun()) run();
     },
     status,
     info,
     isConfigured,
+    /** Trimite acum, fără să mai aștepte pauza (la plecarea din pagină). */
+    flush,
     /** Apelat după fiecare modificare locală. */
     markDirty() {
       meta.rev++; saveMeta();
       if (timer) clearTimeout(timer);
-      if (meta.connected) timer = setTimeout(() => { timer = null; run(); }, CFG.SAVE_DEBOUNCE_MS || 2000);
+      if (meta.connected) timer = setTimeout(() => { timer = null; run(); }, CFG.SAVE_DEBOUNCE_MS || 8000);
       emit();
     },
     /** Conectare / reconectare (din clic). */
@@ -306,26 +324,11 @@
       try { if (token && window.google && google.accounts.oauth2.revoke) google.accounts.oauth2.revoke(token.access_token, () => {}); } catch (e) { /* */ }
       token = null; writeLS(LS_TOKEN, null);
       meta.connected = false; meta.fileId = null; meta.version = null; saveMeta();
-      conflict = null; needAuth = false; lastError = null;
+      needAuth = false; lastError = null; setBase(null);
       emit();
     },
     syncNow() { lastError = null; return run(); },
-    resolveConflict(choice) {
-      if (!conflict) return;
-      const c = conflict; conflict = null;
-      if (choice === 'remote') {
-        hooks.setData(c.remoteData);
-        meta.version = String(c.remoteMeta.version); meta.modifiedTime = c.remoteMeta.modifiedTime;
-        meta.syncedRev = meta.rev; saveMeta();
-        emit();
-      } else {
-        // Păstrăm local: considerăm versiunea din Drive "văzută" și o suprascriem.
-        meta.version = String(c.remoteMeta.version);
-        meta.rev++; saveMeta();
-        run();
-      }
-    },
-    _debug: () => ({ meta: Object.assign({}, meta), token, needAuth, busy, conflict: !!conflict }),
+    _debug: () => ({ meta: Object.assign({}, meta), token, needAuth, busy, base }),
   };
   window.Sync = Sync;
 })();

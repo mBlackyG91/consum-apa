@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.2.0';
+  const APP_VERSION = '1.3.0';
   const LS_DATA = 'evidenta-apa:data';
   const LS_UI = 'evidenta-apa:ui';
 
@@ -811,28 +811,61 @@
     alert('Datele au fost importate.');
   }
 
-  // ======================= CONFLICT =======================
-  let conflictInfo = null;
-  function summary(d, modified) {
-    let n;
-    try { n = normalize(d); } catch (e) { return '<p>Date ilizibile.</p>'; }
-    const keys = Object.keys(n.months).sort();
-    const last = keys.length ? monthLabel(keys[keys.length - 1]) : '—';
-    return '<ul><li>Apartamente: ' + n.apartments.map((a) => esc(a.number || '?')).join(', ') + '</li>' +
-      '<li>Luni cu date: ' + keys.length + '</li><li>Ultima lună: ' + last + '</li>' +
-      '<li>Modificat: ' + fmtTime(modified || n.updatedAt) + '</li></ul>';
+  // ======================= ÎMBINARE ȘI AVIZE =======================
+  // Nu există ferestre care să întrerupă introducerea. Dacă la sincronizare două
+  // dispozitive au schimbat aceeași valoare, câștigă cea mai recentă și afișăm
+  // o notă (neblocantă) cu ce a fost înlocuit.
+  const LS_NOTE = 'evidenta-apa:mergenote';
+  const noteVal = (v) => (v == null ? 'gol' : typeof v === 'boolean' ? (v ? 'da' : 'nu') : String(v));
+  function describeNote(n, d) {
+    const p = n.path;
+    const aptName = (id) => { const a = d.apartments.find((x) => x.id === id); return a && a.number.trim() ? 'Ap. ' + a.number.trim() : 'apartament'; };
+    const meterLabel = (k) => (METERS.find((m) => m.key === k) || { label: k }).label;
+    const FIELD = { number: 'număr', owner: 'proprietar', defaultPersons: 'persoane implicit', print: 'include la tipărire' };
+    let label;
+    if (p[0] === 's') label = 'Formulare pe foaie';
+    else if (p[0] === 'a') label = aptName(p[1]) + ' · ' + (p[2] === 'm' ? 'contor ' + meterLabel(p[3]) : FIELD[p[2]] || p[2]);
+    else if (p[2] === 'period') label = monthLabel(p[1]) + ' · perioada';
+    else if (p[3] === 'persons') label = aptName(p[2]) + ' · ' + monthLabel(p[1]) + ' · persoane';
+    else label = aptName(p[2]) + ' · ' + monthLabel(p[1]) + ' · ' + meterLabel(p[4]) + ' · index ' + (p[5] === 'old' ? 'vechi' : 'nou');
+    return n.kept === 'local'
+      ? label + ': ai păstrat ' + noteVal(n.local) + ' (introdus aici); pe celălalt dispozitiv era ' + noteVal(n.remote) + '.'
+      : label + ': valoarea de aici (' + noteVal(n.local) + ') a fost înlocuită cu ' + noteVal(n.remote) + ', introdusă mai recent pe celălalt dispozitiv.';
   }
-  function openConflict(c) {
-    conflictInfo = c;
-    $('#conflict-text').textContent = c.firstOnDevice
-      ? 'În Google Drive există deja un fișier cu date, iar pe acest dispozitiv ai date care nu au fost salvate în Drive. Alege ce versiune păstrezi.'
-      : 'Fișierul din Google Drive a fost modificat de pe alt dispozitiv, iar aici ai modificări nesincronizate. Alege ce versiune păstrezi; cealaltă se pierde.';
-    $('#conflict-remote').innerHTML = summary(c.remoteData, c.remoteModifiedTime);
-    $('#conflict-local').innerHTML = summary(data);
-    const dlg = $('#conflict-dlg');
-    if (!dlg.open) { if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', ''); }
+  function readNote() { try { return JSON.parse(localStorage.getItem(LS_NOTE)); } catch (e) { return null; } }
+  function renderNotice() {
+    const note = readNote();
+    const box = $('#notice'); box.hidden = !note;
+    if (note) {
+      $('#notice-text').textContent = 'Am îmbinat modificările de pe celălalt dispozitiv cu ale tale. ' +
+        note.items.length + (note.items.length === 1 ? ' valoare a fost schimbată pe ambele; ' : ' valori au fost schimbate pe ambele; ') +
+        'a rămas cea mai recentă.';
+      $('#notice-list').innerHTML = note.items.map((t) => '<li>' + esc(t) + '</li>').join('');
+    }
+    $('#auth-notice').hidden = window.Sync.status().code !== 'auth';
   }
-  function closeConflict() { const dlg = $('#conflict-dlg'); if (dlg.close) dlg.close(); else dlg.removeAttribute('open'); }
+  function onMerge(notes, d) {
+    const prev = readNote();
+    const items = (prev ? prev.items : []).concat(notes.map((n) => describeNote(n, d))).slice(-50);
+    try { localStorage.setItem(LS_NOTE, JSON.stringify({ at: new Date().toISOString(), items })); } catch (e) { /* */ }
+    renderNotice();
+  }
+
+  // Datele aduse din Drive nu se desenează cât timp utilizatorul scrie într-un câmp:
+  // formularul s-ar reconstrui și ar pierde cursorul.
+  let pendingRender = false;
+  function isEditing() {
+    const a = document.activeElement;
+    return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && !!a.closest('main');
+  }
+  function applyRemote(d) {
+    data = normalize(d); saveLocal();
+    if (isEditing()) pendingRender = true; else renderTab();
+  }
+  document.addEventListener('focusout', () => {
+    if (!pendingRender) return;
+    setTimeout(() => { if (pendingRender && !isEditing()) { pendingRender = false; renderTab(); } }, 250);
+  });
 
   // ======================= NAVIGARE / RANDARE =======================
   function renderTab() {
@@ -849,6 +882,7 @@
 
   function onStatus(st) {
     const b = $('#sync-badge'); b.textContent = st.text; b.dataset.code = st.code;
+    $('#auth-notice').hidden = st.code !== 'auth';
     if (ui.tab === 'date') renderDate();
   }
   async function connect() {
@@ -917,31 +951,25 @@
     $('#sync-badge').addEventListener('click', () => {
       const st = window.Sync.status();
       if (st.code === 'auth') connect();
-      else if (st.code === 'error') window.Sync.syncNow();
-      else if (st.code === 'conflict' && conflictInfo) openConflict(conflictInfo);
+      else if (st.code === 'error' || st.code === 'pending') window.Sync.syncNow();
       else setTab('date');
     });
-    $('#conflict-use-remote').addEventListener('click', () => {
-      if (!confirm('Modificările de pe acest dispozitiv care nu sunt în Drive se vor pierde. Continui?')) return;
-      closeConflict(); conflictInfo = null; window.Sync.resolveConflict('remote');
-    });
-    $('#conflict-use-local').addEventListener('click', () => {
-      if (!confirm('Fișierul din Drive va fi înlocuit cu datele de pe acest dispozitiv. Continui?')) return;
-      closeConflict(); conflictInfo = null; window.Sync.resolveConflict('local');
-    });
-    $('#conflict-export').addEventListener('click', exportJson);
+    $('#auth-notice-btn').addEventListener('click', connect);
+    $('#notice-close').addEventListener('click', () => { try { localStorage.removeItem(LS_NOTE); } catch (e) { /* */ } renderNotice(); });
   }
 
   // ======================= PORNIRE =======================
   bind();
   window.Sync.init({
     getData: () => data,
-    setData: (d) => { data = normalize(d); saveLocal(); renderTab(); },
+    setData: applyRemote,
+    merge: (b, l, r) => window.Merge.merge(b, l, r),
     isPristine,
     onStatus,
-    onConflict: openConflict,
+    onMerge,
   });
   renderTab();
+  renderNotice();
 
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
     window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => { /* */ }));
